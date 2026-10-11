@@ -286,3 +286,8 @@ a.link-btn { color: var(--accent); display: inline-flex; align-items: center; }
 .tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 5px; border-radius: 5px; background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); vertical-align: 2px; }
 .food-row:disabled { opacity: .55; cursor: default; }
 .chip .muted { font-weight: 500; }
+.tag.warn { background: var(--warn-bg); color: var(--warn-text); }
+.tag.plain { background: color-mix(in srgb, var(--muted) 18%, transparent); color: inherit; font-weight: 600; }
+.tags { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.plate-total { display: flex; justify-content: space-between; gap: 8px; padding: 10px 0 4px; border-top: 1px solid var(--border); margin-top: 6px; font-weight: 600; }
+.school-pick { display: grid; gap: 8px; margin-top: 12px; }

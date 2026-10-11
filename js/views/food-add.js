@@ -1,11 +1,14 @@
-import { db, logFood, saveFood, deleteFood, recentFoods, favoriteFoods, customFoods } from '../db.js';
+import { db, logFood, saveFood, deleteFood, recentFoods, favoriteFoods, customFoods, getEntries, getProfile, saveProfile } from '../db.js';
 import { setTitle, esc, n0, today, openSheet, stepper, wireSteppers, seg, num, toast } from '../ui.js';
-import { MEALS, NUTRIENTS, OPTIONAL, mealForNow, mealLabel, entryTotals, servingText, macroLine } from '../nutrition.js';
+import { MEALS, NUTRIENTS, OPTIONAL, mealForNow, mealLabel, entryTotals, sumTotals, macroLine } from '../nutrition.js';
 import { dayLabel } from './food.js';
 import { startScanner, lookupBarcode, cleanCode } from '../barcode.js';
-import { loadMenu, menuCached, matchMeal, hasNutrition, foodFromMenuItem } from '../menu.js';
+import { loadMenu, menuCached, matchMeal, hasNutrition, foodFromMenuItem, menuCandidates, strictMeal, SCHOOLS, schoolInfo } from '../menu.js';
+import { loadContext } from '../state.js';
+import { remaining, mealBudget, rank, buildPlate } from '../recommend.js';
 
 const TABS = [
+  { id: 'picks', label: 'Best picks' },
   { id: 'recent', label: 'Recent' },
   { id: 'favorites', label: 'Favorites' },
   { id: 'mine', label: 'My foods' },
@@ -32,7 +35,12 @@ export async function renderFoodAdd(root, params) {
     <div data-search style="margin-top:8px"><input type="search" placeholder="Search your foods" autocomplete="off" enterkeyhint="search"></div>
     <div data-body></div>`;
 
-  root.querySelectorAll('input[name=meal]').forEach((r) => r.addEventListener('change', () => { meal = r.value; if (tab === 'quick') draw(); }));
+  const ctx = await loadContext();
+  let school = ctx.profile.school;
+  const eaten = sumTotals(await getEntries(date));
+  const left = remaining(ctx.plan, eaten);
+
+  root.querySelectorAll('input[name=meal]').forEach((r) => r.addEventListener('change', () => { meal = r.value; if (tab === 'quick' || tab === 'picks') draw(); }));
   const body = root.querySelector('[data-body]');
   const searchBox = root.querySelector('[data-search]');
   const search = searchBox.querySelector('input');
@@ -55,9 +63,10 @@ export async function renderFoodAdd(root, params) {
 
   async function draw() {
     root.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
-    searchBox.hidden = tab === 'quick' || tab === 'dining';
+    searchBox.hidden = tab === 'quick' || tab === 'dining' || tab === 'picks';
 
     if (tab === 'quick') { drawQuick(); return; }
+    if (tab === 'picks') { drawPicks(); return; }
     if (tab === 'dining') { drawDining(); return; }
 
     let foods;
@@ -79,7 +88,7 @@ export async function renderFoodAdd(root, params) {
         <div class="row" style="gap:4px">
           <button class="food-row grow" data-food="${f.id}">
             <div class="grow"><div class="name">${esc(f.name)}</div>
-              <div class="sub">${esc(f.serving || '1 serving')} · ${macroLine(f.per)}${f.source === 'quick' ? ' · quick add' : f.source === 'menu' ? ' · Purdue dining' : ''}</div></div>
+              <div class="sub">${esc(f.serving || '1 serving')} · ${macroLine(f.per)}${f.source === 'quick' ? ' · quick add' : f.source === 'menu' ? ` · ${esc(schoolInfo(f.school || 'purdue')?.name || '')} dining` : ''}</div></div>
             <div class="kcal">${n0(f.per.kcal)}</div>
           </button>
           <button class="star ${f.favorite ? 'on' : ''}" data-fav="${f.id}" aria-label="${f.favorite ? 'Remove from' : 'Add to'} favorites">${f.favorite ? '★' : '☆'}</button>
@@ -100,14 +109,39 @@ export async function renderFoodAdd(root, params) {
     }));
   }
 
-  // ---- Purdue dining ----
-  const dining = { court: null, date: null, meal: null, query: '' };
-  try { dining.court = localStorage.getItem('fuel-court'); } catch (e) { /* ignore */ }
+  // ---- Campus dining ----
+  const dining = { court: null, date: null, meal: null, query: '', school: null };
+  const courtKey = () => (school === 'purdue' ? 'fuel-court' : `fuel-court-${school}`);
+
+  // Ask for a school when none is set. Saved to the profile, same as height and weight.
+  function schoolPicker(onPicked) {
+    body.innerHTML = `<div class="card"><h3>Which school's dining menus?</h3>
+      <p class="small muted" style="margin:4px 0 0">Saved to your profile. You can change it in Settings.</p>
+      <div class="school-pick">${SCHOOLS.map((x) => `<button class="btn block" data-school="${x.id}">${esc(x.name)}</button>`).join('')}</div></div>`;
+    body.querySelectorAll('[data-school]').forEach((b) => b.addEventListener('click', async () => {
+      school = b.dataset.school;
+      const profile = await getProfile();
+      await saveProfile({ ...profile, school });
+      onPicked();
+    }));
+  }
 
   async function drawDining() {
-    if (!menuCached()) body.innerHTML = '<div class="empty small">Loading menus…</div>';
+    const info = schoolInfo(school);
+    if (!info) {
+      if (school === 'none') {
+        body.innerHTML = `<div class="card empty"><h3>No campus menus</h3><p class="small">Dining menus are available for ${SCHOOLS.map((x) => esc(x.name)).join(' and ')}. Change your school in <a href="#/settings">Settings</a> to see them.</p></div>`;
+      } else schoolPicker(drawDining);
+      return;
+    }
+    if (dining.school !== school) {
+      dining.school = school;
+      dining.court = null;
+      try { dining.court = localStorage.getItem(courtKey()); } catch (e) { /* ignore */ }
+    }
+    if (!menuCached(school)) body.innerHTML = '<div class="empty small">Loading menus…</div>';
     let menu;
-    try { menu = await loadMenu(); } catch (e) {
+    try { menu = await loadMenu(school); } catch (e) {
       body.innerHTML = `<div class="card empty"><h3>Menus unavailable</h3><p class="small">${esc(e.message)} Menus load once you've been online after the morning update.</p></div>`;
       return;
     }
@@ -148,23 +182,24 @@ export async function renderFoodAdd(root, params) {
       list = hits.length ? `<div class="card">${hits.join('')}</div>` : '<div class="card empty small">Nothing matches on this day.</div>';
     } else {
       const m = meals.find((x) => x.name === dining.meal);
-      list = m ? m.stations.map((st) => `<div class="card"><h3>${esc(st.name)}</h3>${st.items.map((id) => row(id)).join('')}</div>`).join('')
-        : '<div class="card empty small">No meals posted for this court.</div>';
+      const picks = m ? diningPicks(menu, dining.court, m) : '';
+      list = picks + (m ? m.stations.map((st) => `<div class="card"><h3>${esc(st.name)}</h3>${st.items.map((id) => row(id)).join('')}</div>`).join('')
+        : '<div class="card empty small">No meals posted here.</div>');
     }
 
     const dayChip = (d) => `<button type="button" class="chip ${d === dining.date ? 'on' : ''}" data-ddate="${d}">${esc(dayLabel(d))}</button>`;
     body.innerHTML = `
       <div class="chips" style="margin-top:8px">${dates.map(dayChip).join('')}</div>
       <div class="chips">${courts.map((c) => `<button type="button" class="chip ${c === dining.court ? 'on' : ''}" data-dcourt="${esc(c)}">${esc(c)}</button>`).join('')}</div>
-      <div style="margin-top:10px"><input type="search" data-dsearch placeholder="Search all dining courts" value="${esc(dining.query)}" autocomplete="off" enterkeyhint="search"></div>
+      <div style="margin-top:10px"><input type="search" data-dsearch placeholder="Search all ${esc(info.places)}" value="${esc(dining.query)}" autocomplete="off" enterkeyhint="search"></div>
       ${q ? '' : `<div class="chips">${meals.map((m) => `<button type="button" class="chip ${m.name === dining.meal ? 'on' : ''}" data-dmeal="${esc(m.name)}">${esc(m.name)}${m.start ? ` <span class="muted small">${fmtTime(m.start)}–${fmtTime(m.end)}</span>` : ''}</button>`).join('')}</div>`}
       ${list}
-      <p class="small muted" style="text-align:center">Menus from Purdue Dining, updated ${esc(new Date(menu.generated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}.</p>`;
+      <p class="small muted" style="text-align:center">Menus from ${esc(info.dining)}, updated ${esc(new Date(menu.generated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}.</p>`;
 
     body.querySelectorAll('[data-ddate]').forEach((b) => b.addEventListener('click', () => { dining.date = b.dataset.ddate; drawDining(); }));
     body.querySelectorAll('[data-dcourt]').forEach((b) => b.addEventListener('click', () => {
       dining.court = b.dataset.dcourt;
-      try { localStorage.setItem('fuel-court', dining.court); } catch (e) { /* ignore */ }
+      try { localStorage.setItem(courtKey(), dining.court); } catch (e) { /* ignore */ }
       drawDining();
     }));
     body.querySelectorAll('[data-dmeal]').forEach((b) => b.addEventListener('click', () => { dining.meal = b.dataset.dmeal; drawDining(); }));
@@ -175,8 +210,114 @@ export async function renderFoodAdd(root, params) {
       drawDining().then(() => { const n = body.querySelector('[data-dsearch]'); n?.focus(); n?.setSelectionRange(pos, pos); });
     });
     body.querySelectorAll('[data-menu-item]').forEach((b) => b.addEventListener('click', async () => {
-      const food = await foodFromMenuItem(b.dataset.menuItem, menu.items[b.dataset.menuItem]);
+      const food = await foodFromMenuItem(b.dataset.menuItem, menu.items[b.dataset.menuItem], school);
       servingsSheet(food, meal, date, afterLog, () => drawDining());
+    }));
+    wirePlate(body, menu);
+  }
+
+  // Top picks and a suggested plate for one dining location's meal.
+  function diningPicks(menu, court, m) {
+    const budget = mealBudget(left, meal);
+    if (budget.dayKcal < 30) return '';
+    const cands = [];
+    for (const st of m.stations) for (const id of st.items) {
+      const it = menu.items[id];
+      if (hasNutrition(it)) cands.push({ key: id, name: it.name, per: it, court, station: st.name, veg: it.veg, vegan: it.vegan });
+    }
+    const top = rank(cands, budget, 3);
+    if (!top.length) return '';
+    const plate = buildPlate(cands, budget);
+    return `<div class="card"><h3>Best picks here</h3>
+      <p class="small muted" style="margin:2px 0 0">For about ${n0(budget.kcal)} kcal of the ${n0(budget.dayKcal)} you have left.</p>
+      ${top.map((p) => pickRow(p, p.station)).join('')}
+      ${plate.items.length > 1 ? `<details><summary>Build a plate</summary>${plateHtml(plate)}</details>` : ''}</div>`;
+  }
+
+  // ---- Best picks: what fills your remaining macros without going over ----
+  async function drawPicks() {
+    const budget = mealBudget(left, meal);
+    const need = (v) => n0(Math.max(0, v));
+    const head = `<div class="card"><h3>Best picks for ${esc(mealLabel(meal))}</h3>
+      <p class="small muted" style="margin:4px 0 0">${n0(Math.max(0, left.kcal))} kcal left ${date === today() ? 'today' : 'that day'}. Still to go: protein ${need(left.protein)}g · carbs ${need(left.carbs)}g · fat ${need(left.fat)}g.</p>
+      ${budget.dayKcal >= 30 ? `<p class="small muted" style="margin:4px 0 0">Ranked for about ${n0(budget.kcal)} kcal at this meal, favoring protein, fiber and less sodium and sugar. Nothing here puts you over.</p>` : ''}</div>`;
+    if (budget.dayKcal < 30) {
+      body.innerHTML = head + '<div class="card empty"><h3>You\'ve hit your calories</h3><p class="small">Anything more goes over your target. Water, black coffee, tea or plain veggies are the safest bets.</p></div>';
+      return;
+    }
+    body.innerHTML = head + '<div class="empty small">Finding picks…</div>';
+
+    let diningHtml = '';
+    let menu = null;
+    const info = schoolInfo(school);
+    if (info) {
+      try { menu = await loadMenu(school); } catch (e) { menu = null; }
+    }
+    if (tab !== 'picks') return;
+    if (menu && menu.dates.includes(date)) {
+      const cands = menuCandidates(menu, date, (meals) => strictMeal(meals, meal));
+      const top = rank(cands, budget, 6);
+      // Suggest a plate from the location with the best combination.
+      let plate = null;
+      for (const court of new Set(cands.map((c) => c.court))) {
+        const p = buildPlate(cands.filter((c) => c.court === court), budget);
+        const score = p.items.reduce((sum, x) => sum + x.score, 0);
+        if (p.items.length > 1 && (!plate || score > plate.score)) plate = { ...p, score, court };
+      }
+      diningHtml = top.length ? `<div class="section-title">${esc(info.name)} dining</div>
+        <div class="card">${top.map((p) => pickRow(p, `${p.court} · ${p.station}`)).join('')}</div>
+        ${plate ? `<div class="card"><h3>Suggested plate at ${esc(plate.court)}</h3>${plateHtml(plate)}</div>` : ''}`
+        : `<div class="card empty small">Nothing on today's ${esc(info.name)} menus fits what you have left.</div>`;
+    } else if (!info && school !== 'none') {
+      diningHtml = '<div class="card empty small">Pick your school on the Dining tab to include campus menus.</div>';
+    }
+
+    const saved = (await db.foods.toArray()).filter((f) => f.source !== 'quick' && f.source !== 'menu');
+    const mine = rank(saved.map((f) => ({ key: `f${f.id}`, name: f.name, per: f.per, food: f })), budget, 5);
+    const mineHtml = `<div class="section-title">Your foods</div>${mine.length
+      ? `<div class="card">${mine.map((p) => pickRow(p, p.food.serving || '1 serving')).join('')}</div>`
+      : '<div class="card empty small">Save or scan foods and the ones that fit will show up here.</div>'}`;
+
+    body.innerHTML = head + diningHtml + mineHtml;
+    body.querySelectorAll('[data-pick-food]').forEach((b) => b.addEventListener('click', () => {
+      const p = mine.find((x) => x.key === b.dataset.pickFood);
+      servingsSheet(p.food, meal, date, afterLog, () => drawPicks());
+    }));
+    body.querySelectorAll('[data-menu-item]').forEach((b) => b.addEventListener('click', async () => {
+      const food = await foodFromMenuItem(b.dataset.menuItem, menu.items[b.dataset.menuItem], school);
+      servingsSheet(food, meal, date, afterLog, () => drawPicks());
+    }));
+    if (menu) wirePlate(body, menu);
+  }
+
+  function pickRow(p, where) {
+    const attr = p.food ? `data-pick-food="${esc(p.key)}"` : `data-menu-item="${esc(p.key)}"`;
+    const t = [...p.tags.map((x) => `<span class="tag ${x.good ? '' : 'warn'}">${esc(x.text)}</span>`),
+      p.vegan ? '<span class="tag">VG</span>' : p.veg ? '<span class="tag">V</span>' : ''].join('');
+    return `<button class="food-row" ${attr}>
+      <div class="grow"><div class="name">${esc(p.name)}</div>
+        <div class="sub">${where ? esc(where) + ' · ' : ''}${macroLine(p.per)}</div>
+        ${t ? `<div class="tags">${t}</div>` : ''}</div>
+      <div class="kcal">${n0(p.per.kcal)}</div></button>`;
+  }
+
+  function plateHtml(plate) {
+    const t = plate.total;
+    return `${plate.items.map((p) => `<div class="row between small" style="padding:6px 0"><span>${esc(p.name)}</span><span class="num muted">${n0(p.per.kcal)}</span></div>`).join('')}
+      <div class="plate-total small"><span>${n0(t.kcal)} kcal</span><span class="num">${macroLine(t)}</span></div>
+      <button class="btn primary block" data-log-plate="${esc(plate.items.map((p) => p.key).join('|'))}" style="margin-top:8px">Add all to ${esc(mealLabel(meal))}</button>`;
+  }
+
+  function wirePlate(el, menu) {
+    el.querySelectorAll('[data-log-plate]').forEach((b) => b.addEventListener('click', async () => {
+      b.disabled = true;
+      const ids = b.dataset.logPlate.split('|');
+      for (const id of ids) {
+        const food = await foodFromMenuItem(id, menu.items[id], school);
+        await logFood(food, { date, meal, servings: 1 });
+      }
+      toast(`Added ${ids.length} items to ${mealLabel(meal)}`);
+      location.hash = back;
     }));
   }
 
@@ -239,7 +380,7 @@ function servingsSheet(food, meal, date, onLogged, onChanged) {
     <form novalidate>
       <div class="row between"><h2 class="grow">${esc(food.name)}</h2>${editable ? '<button type="button" class="link-btn" data-edit>Edit</button>' : ''}</div>
       <p class="small muted" style="margin:0 0 8px">${esc(food.serving || '1 serving')} · ${n0(food.per.kcal)} kcal per serving</p>
-      ${food.source === 'menu' ? '<p class="small muted" style="margin:0 0 8px">Nutrition from Purdue Dining.</p>' : ''}
+      ${food.source === 'menu' ? `<p class="small muted" style="margin:0 0 8px">Nutrition from ${esc(schoolInfo(food.school || 'purdue')?.dining || 'the dining hall')}.</p>` : ''}
       ${food.source === 'barcode' ? '<p class="small muted" style="margin:0 0 8px">Scanned food. Nutrition comes from Open Food Facts, so give it a quick check against the label (tap Edit to fix).</p>' : ''}
       <div class="field"><span>Servings</span>${stepper('servings', 1)}
         <div class="chips">${[0.5, 1, 1.5, 2, 3].map((v) => `<button type="button" class="chip" data-chip="${v}">${v}×</button>`).join('')}</div></div>

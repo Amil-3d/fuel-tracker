@@ -4,7 +4,7 @@ import { setTitle, seg, toast, notices, applyTheme } from '../ui.js';
 import { computePlan, defaultRate } from '../plan.js';
 import { fmtWeight } from '../units.js';
 import {
-  sexField, birthField, heightField, readHeight, weightField, readWeight,
+  sexField, birthField, schoolField, heightField, readHeight, weightField, readWeight,
   activityField, goalField, rateField, readRate, macroFields, readMacros, wireGoalControls
 } from './profile-form.js';
 import { targetsHtml, planMathHtml } from './plan-card.js';
@@ -27,6 +27,7 @@ export async function renderSettings(root, sub) {
     <form class="card" data-profile novalidate>
       ${sexField(profile.sex)}
       ${birthField(profile.birthDate)}
+      ${schoolField(profile.school)}
       ${heightField(units, profile.heightCm)}
       <div class="field"><span>Current weight</span><div class="row between"><strong>${fmtWeight(kg, units)}</strong><a href="#/progress" class="btn small">Log new weight</a></div></div>
       ${activityField(profile.activity)}
@@ -50,7 +51,7 @@ export async function renderSettings(root, sub) {
       <p class="small muted" style="margin:0">All data stays on this phone. Export and import backups arrive in phase 6.</p>
       <button class="btn danger block" data-reset>Erase all data</button>
     </div>
-    <p class="small muted" style="text-align:center">Fuel · phase 2 · <button class="link-btn small" data-refresh>Force update</button></p>`;
+    <p class="small muted" style="text-align:center">Fuel · v7 · <button class="link-btn small" data-refresh>Force update</button></p>`;
 
   // Preferences save instantly.
   const prefs = root.querySelector('[data-prefs]');
@@ -84,7 +85,7 @@ export async function renderSettings(root, sub) {
     }
     return {
       profile: {
-        ...profile, sex: form.sex.value, birthDate: form.birthDate.value, heightCm,
+        ...profile, sex: form.sex.value, birthDate: form.birthDate.value, school: form.school.value || profile.school || null, heightCm,
         activity: form.activity.value, goal, targetKg, ratePerWeekKg, ...readMacros(form)
       }
     };

@@ -1,11 +1,18 @@
 // Shared profile form fields used by onboarding and Settings.
 import { esc, seg, num } from '../ui.js';
 import { ACTIVITY_LEVELS, GOALS, DEFAULT_PROTEIN, DEFAULT_FAT_PCT, maxRate, defaultRate } from '../plan.js';
+import { SCHOOLS } from '../menu.js';
 import { cmToFtIn, ftInToCm, toDisplayWeight, fromDisplayWeight, weightUnit, fmtRate } from '../units.js';
 
 export function sexField(sex) {
   return `<div class="field"><span>Sex (used by the BMR equation)</span>
     ${seg('sex', [{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }], sex)}</div>`;
+}
+
+export function schoolField(school) {
+  const opts = [...SCHOOLS.map((x) => ({ value: x.id, label: x.name })), { value: 'none', label: 'Other' }];
+  return `<div class="field"><span>School</span>${seg('school', opts, school || '')}
+    <div class="hint">Shows your campus dining menus in Add food. Pick Other if neither applies.</div></div>`;
 }
 
 export function birthField(birthDate) {

@@ -2,7 +2,7 @@ import { saveProfile, addWeight, setSetting } from '../db.js';
 import { seg, today, notices, setTitle } from '../ui.js';
 import { computePlan, defaultRate } from '../plan.js';
 import {
-  sexField, birthField, heightField, readHeight, weightField, readWeight,
+  sexField, birthField, schoolField, heightField, readHeight, weightField, readWeight,
   activityField, goalField, rateField, readRate, wireGoalControls
 } from './profile-form.js';
 import { targetsHtml, planMathHtml } from './plan-card.js';
@@ -11,7 +11,7 @@ export function renderOnboarding(root, onDone) {
   setTitle('');
   const s = {
     units: 'imperial', sex: null, birthDate: '', heightCm: null, kg: null,
-    activity: 'light', goal: 'lose', targetKg: null, ratePerWeekKg: null,
+    school: null, activity: 'light', goal: 'lose', targetKg: null, ratePerWeekKg: null,
     proteinPerKg: null, fatMinPct: null
   };
 
@@ -25,12 +25,14 @@ export function renderOnboarding(root, onDone) {
       read: (f) => { s.units = f.units.value; }
     },
     {
-      html: () => `<h2>About you</h2><p class="lead">Used to estimate your resting metabolism.</p>${sexField(s.sex)}${birthField(s.birthDate)}`,
+      html: () => `<h2>About you</h2><p class="lead">Used to estimate your resting metabolism and show your campus menus.</p>${sexField(s.sex)}${birthField(s.birthDate)}${schoolField(s.school)}`,
       read: (f) => {
         if (!f.sex.value) return 'Choose a sex.';
         if (!f.birthDate.value) return 'Enter your birth date.';
+        if (!f.school.value) return 'Choose your school, or Other.';
         s.sex = f.sex.value;
         s.birthDate = f.birthDate.value;
+        s.school = f.school.value;
       }
     },
     {

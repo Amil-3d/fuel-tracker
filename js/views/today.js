@@ -26,6 +26,12 @@ export async function renderToday(root) {
     </div>
     <div class="card">
       <div class="row between">
+        <div><h3>What should I eat?</h3><div class="muted small">Foods that fill your macros without going over</div></div>
+        <a class="btn small" href="#/food/add?tab=picks">Best picks</a>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row between">
         <div><h3>Weight</h3><div class="muted small">${fmtWeight(ctx.kg, units)} · ${ctx.weightDate ? fmtDate(ctx.weightDate) : ''}</div></div>
         <a class="btn small" href="#/progress">${stale ? 'Log today' : 'View'}</a>
       </div>
