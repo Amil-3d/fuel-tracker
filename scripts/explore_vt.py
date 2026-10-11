@@ -1,31 +1,42 @@
-# One-off exploration of Virginia Tech dining (round 3: JSON API under /menus/API/).
-import re
+# One-off exploration of Virginia Tech dining (round 4: menu + nutrition JSON).
 import json
+import datetime
+import zoneinfo
 import requests
 
 HEADERS = {"User-Agent": "Mozilla/5.0 (fuel-tracker personal menu fetcher)"}
-BASE = "https://foodpro.students.vt.edu"
-API = BASE + "/menus/API/"
+API = "https://foodpro.students.vt.edu/menus/API/"
+d = datetime.datetime.now(zoneinfo.ZoneInfo("America/New_York")).date() + datetime.timedelta(days=1)
+menu = None
+for fmt in [d.strftime("%m/%d/%Y"), d.isoformat(), str(d.month) + "/" + str(d.day) + "/" + str(d.year)]:
+    r = requests.get(API + "MenuAtLocation.aspx", params={"locationNum": "16", "dtdate": fmt}, headers=HEADERS, timeout=30)
+    print("MenuAtLocation 16", fmt, "->", r.status_code, r.headers.get("content-type"), len(r.content))
+    print(r.text[:300])
+    if r.status_code == 200 and "json" in (r.headers.get("content-type") or "") and menu is None and len(r.content) > 200:
+        menu = r.json()
+        print("USING FORMAT", fmt)
+print("MENU SHAPE:")
+print(json.dumps(menu, indent=1)[:4000] if menu is not None else None)
 
-r = requests.get(API + "Locations.aspx", headers=HEADERS, timeout=30)
-print("Locations.aspx ->", r.status_code, r.headers.get("content-type"), len(r.content))
-locs = r.json()
-print(json.dumps(locs[:2], indent=1)[:2500])
-print("ALL:", [(l.get("name"), l.get("locationNum") or l.get("id") or l.get("locationId")) for l in locs])
-
-loc = locs[0]
-print("Keys:", list(loc.keys()))
-loc_id = str(loc.get("locationNum") or loc.get("locationId") or loc.get("id"))
-
-page = requests.get(BASE + "/menus/menu/?locationId=" + loc_id, headers=HEADERS, timeout=30)
-print("menu page ->", page.status_code, len(page.text))
-chunks = sorted(set(re.findall(r'(/menus/_next/static/chunks/[^"\']+\.js)', page.text)))
-seen = set()
-for c in chunks:
-    js = requests.get(BASE + c, headers=HEADERS, timeout=30).text
-    for m in re.finditer(r'\.aspx', js):
-        s = js[max(0, m.start() - 250): m.start() + 200].replace("\n", " ")
-        key = js[max(0, m.start() - 40): m.start() + 5]
-        if key not in seen:
-            seen.add(key)
-            print("ASPX in", c.split("/")[-1], ":", s)
+items = []
+def walk(x):
+    if isinstance(x, dict):
+        if "recipeId" in x or "recNum" in x:
+            items.append(x)
+        for v in x.values():
+            walk(v)
+    elif isinstance(x, list):
+        for v in x:
+            walk(v)
+walk(menu)
+print("ITEM COUNT:", len(items))
+if items:
+    print("ITEM KEYS:", list(items[0].keys()))
+    q = ",".join(str(i.get("recipeId")) + "*" + str(i.get("portionCode") or (i.get("portionSize") or "1").split(" ")[0]) + "*1" for i in items[:3])
+    r = requests.get(API + "NutritiveReport.aspx?items=" + q, headers=HEADERS, timeout=30)
+    print("NutritiveReport", q, "->", r.status_code, r.headers.get("content-type"), len(r.content))
+    print(r.text[:4000])
+    first = items[0]
+    r = requests.get(API + "Label.aspx", params={"locationNum": "16", "dtdate": d.strftime("%m/%d/%Y"), "recNumAndPort": str(first.get("recipeId")) + "*" + str(first.get("portionSize"))}, headers=HEADERS, timeout=30)
+    print("Label ->", r.status_code, r.headers.get("content-type"), len(r.content))
+    print(r.text[:2500])
