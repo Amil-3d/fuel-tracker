@@ -3,6 +3,7 @@ import { setTitle, esc, n0, today, openSheet, stepper, wireSteppers, seg, num, t
 import { MEALS, NUTRIENTS, OPTIONAL, mealForNow, mealLabel, entryTotals, servingText, macroLine } from '../nutrition.js';
 import { dayLabel } from './food.js';
 import { startScanner, lookupBarcode, cleanCode } from '../barcode.js';
+import { loadMenu, menuCached, matchMeal, hasNutrition, foodFromMenuItem } from '../menu.js';
 
 const TABS = [
   { id: 'recent', label: 'Recent' },
@@ -57,10 +58,7 @@ export async function renderFoodAdd(root, params) {
     searchBox.hidden = tab === 'quick' || tab === 'dining';
 
     if (tab === 'quick') { drawQuick(); return; }
-    if (tab === 'dining') {
-      body.innerHTML = `<div class="card empty"><h3>Purdue dining menus</h3><p class="small">Browsing today's dining court menus arrives in phase 4.</p></div>`;
-      return;
-    }
+    if (tab === 'dining') { drawDining(); return; }
 
     let foods;
     if (query) {
@@ -81,7 +79,7 @@ export async function renderFoodAdd(root, params) {
         <div class="row" style="gap:4px">
           <button class="food-row grow" data-food="${f.id}">
             <div class="grow"><div class="name">${esc(f.name)}</div>
-              <div class="sub">${esc(f.serving || '1 serving')} · ${macroLine(f.per)}${f.source === 'quick' ? ' · quick add' : ''}</div></div>
+              <div class="sub">${esc(f.serving || '1 serving')} · ${macroLine(f.per)}${f.source === 'quick' ? ' · quick add' : f.source === 'menu' ? ' · Purdue dining' : ''}</div></div>
             <div class="kcal">${n0(f.per.kcal)}</div>
           </button>
           <button class="star ${f.favorite ? 'on' : ''}" data-fav="${f.id}" aria-label="${f.favorite ? 'Remove from' : 'Add to'} favorites">${f.favorite ? '★' : '☆'}</button>
@@ -99,6 +97,86 @@ export async function renderFoodAdd(root, params) {
       const food = foods.find((f) => f.id === Number(b.dataset.fav));
       await db.foods.update(food.id, { favorite: food.favorite ? 0 : 1 });
       draw();
+    }));
+  }
+
+  // ---- Purdue dining ----
+  const dining = { court: null, date: null, meal: null, query: '' };
+  try { dining.court = localStorage.getItem('fuel-court'); } catch (e) { /* ignore */ }
+
+  async function drawDining() {
+    if (!menuCached()) body.innerHTML = '<div class="empty small">Loading menus…</div>';
+    let menu;
+    try { menu = await loadMenu(); } catch (e) {
+      body.innerHTML = `<div class="card empty"><h3>Menus unavailable</h3><p class="small">${esc(e.message)} Menus load once you've been online after the morning update.</p></div>`;
+      return;
+    }
+    if (tab !== 'dining') return;
+    // Hide past days unless you're logging for that day.
+    const dates = menu.dates.filter((d) => (d >= today() || d === date) && menu.courts.some((c) => menu.menus[c]?.[d]));
+    if (!dates.length) { body.innerHTML = '<div class="card empty"><h3>No menus posted</h3><p class="small">Check back after tomorrow morning\'s update.</p></div>'; return; }
+    if (!dining.date || !dates.includes(dining.date)) dining.date = dates.includes(date) ? date : dates[0];
+    const courts = menu.courts.filter((c) => menu.menus[c]?.[dining.date]);
+    if (!courts.includes(dining.court)) dining.court = courts[0];
+    const meals = menu.menus[dining.court]?.[dining.date] || [];
+    if (!meals.some((m) => m.name === dining.meal)) dining.meal = matchMeal(meals, meal);
+
+    const q = dining.query.toLowerCase();
+    const row = (id, court, where) => {
+      const it = menu.items[id];
+      if (!it) return '';
+      const ok = hasNutrition(it);
+      return `<button class="food-row" data-menu-item="${esc(id)}" ${ok ? '' : 'disabled'}>
+        <div class="grow"><div class="name">${esc(it.name)}${it.vegan ? ' <span class="tag">VG</span>' : it.veg ? ' <span class="tag">V</span>' : ''}</div>
+          <div class="sub">${where ? esc(where) + ' · ' : ''}${ok ? `${esc(it.serving || '1 serving')} · ${macroLine(it)}` : 'No nutrition info posted'}</div></div>
+        <div class="kcal">${ok ? n0(it.kcal) : '–'}</div></button>`;
+    };
+
+    let list;
+    if (q) {
+      // Search every court and meal on the selected day.
+      const hits = [];
+      const seen = new Set();
+      for (const c of courts) for (const m of menu.menus[c][dining.date]) for (const st of m.stations) for (const id of st.items) {
+        const it = menu.items[id];
+        const key = c + id;
+        if (it && !seen.has(key) && (it.name.toLowerCase().includes(q) || st.name.toLowerCase().includes(q))) {
+          seen.add(key);
+          hits.push(row(id, c, `${c} · ${m.name} · ${st.name}`));
+        }
+      }
+      list = hits.length ? `<div class="card">${hits.join('')}</div>` : '<div class="card empty small">Nothing matches on this day.</div>';
+    } else {
+      const m = meals.find((x) => x.name === dining.meal);
+      list = m ? m.stations.map((st) => `<div class="card"><h3>${esc(st.name)}</h3>${st.items.map((id) => row(id)).join('')}</div>`).join('')
+        : '<div class="card empty small">No meals posted for this court.</div>';
+    }
+
+    const dayChip = (d) => `<button type="button" class="chip ${d === dining.date ? 'on' : ''}" data-ddate="${d}">${esc(dayLabel(d))}</button>`;
+    body.innerHTML = `
+      <div class="chips" style="margin-top:8px">${dates.map(dayChip).join('')}</div>
+      <div class="chips">${courts.map((c) => `<button type="button" class="chip ${c === dining.court ? 'on' : ''}" data-dcourt="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+      <div style="margin-top:10px"><input type="search" data-dsearch placeholder="Search all dining courts" value="${esc(dining.query)}" autocomplete="off" enterkeyhint="search"></div>
+      ${q ? '' : `<div class="chips">${meals.map((m) => `<button type="button" class="chip ${m.name === dining.meal ? 'on' : ''}" data-dmeal="${esc(m.name)}">${esc(m.name)}${m.start ? ` <span class="muted small">${fmtTime(m.start)}–${fmtTime(m.end)}</span>` : ''}</button>`).join('')}</div>`}
+      ${list}
+      <p class="small muted" style="text-align:center">Menus from Purdue Dining, updated ${esc(new Date(menu.generated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}.</p>`;
+
+    body.querySelectorAll('[data-ddate]').forEach((b) => b.addEventListener('click', () => { dining.date = b.dataset.ddate; drawDining(); }));
+    body.querySelectorAll('[data-dcourt]').forEach((b) => b.addEventListener('click', () => {
+      dining.court = b.dataset.dcourt;
+      try { localStorage.setItem('fuel-court', dining.court); } catch (e) { /* ignore */ }
+      drawDining();
+    }));
+    body.querySelectorAll('[data-dmeal]').forEach((b) => b.addEventListener('click', () => { dining.meal = b.dataset.dmeal; drawDining(); }));
+    const ds = body.querySelector('[data-dsearch]');
+    ds.addEventListener('input', () => {
+      dining.query = ds.value.trim();
+      const pos = ds.selectionStart;
+      drawDining().then(() => { const n = body.querySelector('[data-dsearch]'); n?.focus(); n?.setSelectionRange(pos, pos); });
+    });
+    body.querySelectorAll('[data-menu-item]').forEach((b) => b.addEventListener('click', async () => {
+      const food = await foodFromMenuItem(b.dataset.menuItem, menu.items[b.dataset.menuItem]);
+      servingsSheet(food, meal, date, afterLog, () => drawDining());
     }));
   }
 
@@ -161,6 +239,7 @@ function servingsSheet(food, meal, date, onLogged, onChanged) {
     <form novalidate>
       <div class="row between"><h2 class="grow">${esc(food.name)}</h2>${editable ? '<button type="button" class="link-btn" data-edit>Edit</button>' : ''}</div>
       <p class="small muted" style="margin:0 0 8px">${esc(food.serving || '1 serving')} · ${n0(food.per.kcal)} kcal per serving</p>
+      ${food.source === 'menu' ? '<p class="small muted" style="margin:0 0 8px">Nutrition from Purdue Dining.</p>' : ''}
       ${food.source === 'barcode' ? '<p class="small muted" style="margin:0 0 8px">Scanned food. Nutrition comes from Open Food Facts, so give it a quick check against the label (tap Edit to fix).</p>' : ''}
       <div class="field"><span>Servings</span>${stepper('servings', 1)}
         <div class="chips">${[0.5, 1, 1.5, 2, 3].map((v) => `<button type="button" class="chip" data-chip="${v}">${v}×</button>`).join('')}</div></div>
@@ -299,4 +378,10 @@ function scanSheet({ onFood, onMissing }) {
         ? 'Camera access was blocked. Allow it when asked, or type the barcode number below.'
         : (err && err.message) || 'Could not start the camera. Type the barcode number below.');
     });
+}
+
+function fmtTime(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const hr = ((h + 11) % 12) + 1;
+  return `${hr}${m ? ':' + String(m).padStart(2, '0') : ''}${h < 12 ? 'a' : 'p'}`;
 }

@@ -283,3 +283,6 @@ a.link-btn { color: var(--accent); display: inline-flex; align-items: center; }
 .scan-view { position: relative; border-radius: 16px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; margin-top: 8px; }
 .scan-view video { width: 100%; height: 100%; object-fit: cover; display: block; }
 .scan-frame { position: absolute; left: 10%; right: 10%; top: 32%; bottom: 32%; border: 3px solid rgba(255,255,255,.9); border-radius: 12px; box-shadow: 0 0 0 999px rgba(0,0,0,.25); }
+.tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 5px; border-radius: 5px; background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); vertical-align: 2px; }
+.food-row:disabled { opacity: .55; cursor: default; }
+.chip .muted { font-weight: 500; }
