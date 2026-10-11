@@ -1,12 +1,23 @@
 // Food recommendations: rank foods by how well they fill the macros you have left
 // without going over your calories, nudged toward healthier choices.
 
-// Rough share of the day's calories for each meal, used to size a meal's budget.
-const MEAL_SHARE = { breakfast: 0.25, lunch: 0.35, dinner: 0.3, snacks: 0.1 };
-const ORDER = ['breakfast', 'lunch', 'dinner', 'snacks'];
-
 // Add-ons that aren't a meal on their own.
-const ADDON = /\b(sauce|dressing|syrup|ketchup|mustard|mayo|mayonnaise|creamer|sweetener|salt|pepper|gravy|salsa|relish|jelly|jam|honey|vinaigrette|condiment|aioli|hot sauce|sprinkles)\b/i;
+const ADDON = /\b(sauce|dressing|syrup|ketchup|mustard|mayo|mayonnaise|creamer|sweetener|salt|pepper|gravy|salsa|relish|jelly|jam|honey|vinaigrette|condiment|aioli|hot sauce|sprinkles|bits|croutons|shredded \w+ cheese|shredded cheese|sliced \w+ cheese)\b/i;
+
+// Serving amounts a pick can suggest.
+const AMOUNTS = [0.5, 1, 1.5, 2];
+
+// Build-your-own and topping stations hold parts of a meal, not a meal.
+const ADDON_STATION = /\b(byo|toppings?|condiments?|sauces?|dressings?|cheese options|bread options|spreads?)\b/i;
+
+// Countable servings ("1 burger", "2 each") only get amounts that make whole pieces (or half of one).
+function amountsFor(serving) {
+  const s = String(serving || '').toLowerCase().replace(/\s*(per )?(serving|portion)$/, '').trim();
+  if (!s || /oz|cup|tbsp|tsp|ml|lb|gram|\bg\b|ladle|serving|portion/.test(s)) return AMOUNTS;
+  const m = s.match(/^(\d+)(?:\/(\d+))?/);
+  const count = m ? (m[2] ? Number(m[1]) / Number(m[2]) : Number(m[1])) : 1;
+  return AMOUNTS.filter((a) => a === 0.5 || Number.isInteger(Math.round(count * a * 100) / 100));
+}
 
 export function remaining(plan, eaten) {
   return {
@@ -17,12 +28,10 @@ export function remaining(plan, eaten) {
   };
 }
 
-// What's left today, scaled down to a sensible amount for this meal.
-// Later meals get the rest, so dinner gets most of what's left and snacks get all of it.
-export function mealBudget(left, meal) {
-  const i = Math.max(0, ORDER.indexOf(meal));
-  const later = ORDER.slice(i).reduce((s, m) => s + MEAL_SHARE[m], 0);
-  const f = MEAL_SHARE[ORDER[i]] / later;
+// What's left today, split evenly over the meals you still plan to eat.
+// mealsLeft counts this meal, so the last meal of the day gets everything that's left.
+export function mealBudget(left, mealsLeft) {
+  const f = 1 / Math.max(1, mealsLeft);
   const pos = (v) => Math.max(0, v);
   return {
     kcal: Math.min(pos(left.kcal), Math.max(150, pos(left.kcal) * f)),
@@ -33,7 +42,20 @@ export function mealBudget(left, meal) {
   };
 }
 
-const DESSERT = /\b(cake|cookies?|brownies?|pie|tart|cobbler|donuts?|doughnuts?|cupcakes?|pudding|ice cream|muffins?|cinnamon bun|danish|churros?|fudge|candy)\b/i;
+// How many meals are still to come today, including the one being picked for.
+// Meals that already have food logged (other than this one) count as eaten.
+export function mealsLeft(planned, entries, meal) {
+  const eaten = new Set(entries.filter((e) => e.meal !== meal).map((e) => e.meal)).size;
+  return Math.max(1, planned - eaten);
+}
+
+const scale = (per, s) => {
+  const out = {};
+  for (const k in per) out[k] = typeof per[k] === 'number' ? per[k] * s : per[k];
+  return out;
+};
+
+const DESSERT = /\b(cake|cookies?|brownies?|pie|tart|cobbler|donuts?|doughnuts?|cupcakes?|pudding|ice cream|muffins?|cinnamon bun|danish|churros?|fudge|candy|pastry|pastries|chocolatine|scones?|croissants?|turnovers?|eclairs?)\b/i;
 const PLAIN_STARCH = /\b(buns?|rolls?|tortillas?|bread|breadsticks?|bagels?|biscuits?|croissants?|english muffin)$/i;
 
 // Score one food (per serving) against a budget. Returns null if it doesn't fit.
@@ -57,7 +79,7 @@ export function scoreFood(per, budget, name = '') {
 
   // Protein is the hardest macro to hit, so protein-dense foods get a boost while you still need it.
   const proteinShare = needSum > 0 ? need.protein / needSum : 0;
-  let score = 0.5 * match + Math.min(0.45, has.protein / kcal) * (proteinShare > 0.15 ? 1.2 : 0.4);
+  let score = 0.4 * match + Math.min(0.45, has.protein / kcal) * (proteinShare > 0.15 ? 1.6 : 0.4);
 
   const per100 = (v) => ((v || 0) / kcal) * 100;
   score += Math.min(0.2, per100(per.fiber) * 0.06);
@@ -69,10 +91,12 @@ export function scoreFood(per, budget, name = '') {
 
   // Going past what's left of a macro, or past this meal's calories, counts against it.
   for (const k of ['carbs', 'fat']) if (has[k] > need[k] && has[k] > 0) score -= Math.min(0.3, (has[k] - need[k]) / kcal);
+  if (has.protein > need.protein * 1.25) score -= Math.min(0.2, (has.protein - need.protein * 1.25) / kcal);
   if (kcal > budget.kcal) score *= budget.kcal / kcal;
 
-  // Very small portions barely move the needle.
-  return score * Math.sqrt(Math.min(1, kcal / 150));
+  // One food is usually part of a plate, so aim for roughly 40% of the meal's calories.
+  const ideal = Math.max(150, budget.kcal * 0.4);
+  return score * Math.max(0.2, 1 - 0.3 * Math.abs(Math.log2(kcal / ideal)));
 }
 
 export function tags(per) {
@@ -88,16 +112,22 @@ export function tags(per) {
 
 /**
  * Rank candidates: [{ key, name, per, ...anything }]. Returns the top `limit`,
- * best first, each with `score` and `tags`. Duplicate names keep the best one.
+ * best first, each with `score`, `tags` and `servings` (the suggested amount;
+ * `per` is the nutrition for one serving). Duplicate names keep the best one.
  */
 export function rank(candidates, budget, limit = 6) {
   const best = new Map();
   for (const c of candidates) {
-    if (!c.per || ADDON.test(c.name)) continue;
-    const score = scoreFood(c.per, budget, c.name);
-    if (score == null || score <= 0) continue;
-    const name = c.name.toLowerCase();
-    if (!best.has(name) || best.get(name).score < score) best.set(name, { ...c, score, tags: tags(c.per) });
+    if (!c.per || ADDON.test(c.name) || (c.station && ADDON_STATION.test(c.station))) continue;
+    for (const servings of amountsFor(c.per.serving ?? c.serving)) {
+      const amount = scale(c.per, servings);
+      let score = scoreFood(amount, budget, c.name);
+      if (score == null) continue;
+      score -= 0.03 * Math.abs(servings - 1); // a standard serving is simpler, so prefer it on a near tie
+      if (score <= 0) continue;
+      const name = c.name.toLowerCase();
+      if (!best.has(name) || best.get(name).score < score) best.set(name, { ...c, servings, amount, score, tags: tags(amount) });
+    }
   }
   return [...best.values()].sort((a, b) => b.score - a.score).slice(0, limit);
 }
@@ -109,20 +139,22 @@ export function buildPlate(candidates, budget) {
   const used = new Set();
   for (let n = 0; n < 4; n++) {
     if (left.kcal < 80) break;
-    const pool = candidates.filter((c) => !used.has(c.name.toLowerCase()) && c.per && c.per.kcal <= left.kcal);
+    // Skip near-duplicates like "Spaghetti" and "Spaghetti, Small Plate".
+    const base = (n) => n.toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\b(small|large|plate|side|bowl|cup)\b/g, '').trim().split(/\s+/).slice(0, 2).join(' ');
+    const pool = candidates.filter((c) => c.per && ![...used].some((u) => base(u) === base(c.name) || u.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(u)));
     const top = rank(pool, { ...left, dayKcal: Math.min(left.dayKcal, left.kcal) }, 1)[0];
     if (!top || top.score < 0.25) break;
     plate.push(top);
     used.add(top.name.toLowerCase());
     left = {
-      kcal: left.kcal - top.per.kcal,
-      protein: Math.max(0, left.protein - (top.per.protein || 0)),
-      carbs: Math.max(0, left.carbs - (top.per.carbs || 0)),
-      fat: Math.max(0, left.fat - (top.per.fat || 0)),
-      dayKcal: left.dayKcal - top.per.kcal
+      kcal: left.kcal - top.amount.kcal,
+      protein: Math.max(0, left.protein - (top.amount.protein || 0)),
+      carbs: Math.max(0, left.carbs - (top.amount.carbs || 0)),
+      fat: Math.max(0, left.fat - (top.amount.fat || 0)),
+      dayKcal: left.dayKcal - top.amount.kcal
     };
   }
   const total = { kcal: 0, protein: 0, carbs: 0, fat: 0 };
-  for (const p of plate) for (const k in total) total[k] += p.per[k] || 0;
+  for (const p of plate) for (const k in total) total[k] += p.amount[k] || 0;
   return { items: plate, total };
 }

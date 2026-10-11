@@ -1,4 +1,6 @@
-import { getEntries, updateEntry, deleteEntry } from '../db.js';
+import { getEntries, updateEntry, deleteEntry, getMealCount } from '../db.js';
+import { macroRings } from '../charts.js';
+import { mealCountHtml, wireMealCount } from './meal-count.js';
 import { loadContext } from '../state.js';
 import { setTitle, esc, n0, today, isoDate, parseDate, fmtDate, openSheet, stepper, wireSteppers, seg, num, toast } from '../ui.js';
 import { MEALS, entryTotals, sumTotals, servingText, macroLine } from '../nutrition.js';
@@ -17,11 +19,6 @@ export function dayLabel(iso) {
   return fmtDate(iso, { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
-function bar(cls, value, target) {
-  const pct = target > 0 ? Math.min(100, (value / target) * 100) : 0;
-  return `<div class="bar ${cls} ${value > target * 1.05 ? 'over' : ''}"><i style="width:${pct}%"></i></div>`;
-}
-
 export async function renderFood(root, params) {
   setTitle('Food');
   const date = params?.get('date') || today();
@@ -29,7 +26,7 @@ export async function renderFood(root, params) {
   const { plan } = ctx;
   const entries = await getEntries(date);
   const t = sumTotals(entries);
-  const remaining = plan.calories - t.kcal;
+  const meals = await getMealCount(date);
   const optParts = [['fiber', 'Fiber', 'g'], ['sugar', 'Sugar', 'g'], ['sodium', 'Sodium', 'mg']]
     .filter(([k]) => entries.some((e) => e.per[k] != null))
     .map(([k, label, unit]) => `${label} ${n0(t[k])}${unit}`);
@@ -42,20 +39,10 @@ export async function renderFood(root, params) {
     </div>
 
     <div class="card">
-      <div class="row between">
-        <div><div class="small muted">Eaten</div><b class="num" style="font-size:24px">${n0(t.kcal)}</b></div>
-        <div style="text-align:center"><div class="small muted">Target</div><b class="num" style="font-size:24px">${n0(plan.calories)}</b></div>
-        <div style="text-align:right"><div class="small muted">${remaining >= 0 ? 'Remaining' : 'Over'}</div>
-          <b class="num" style="font-size:24px;color:${remaining >= 0 ? 'var(--ok)' : 'var(--danger)'}">${n0(Math.abs(remaining))}</b></div>
-      </div>
-      ${bar('', t.kcal, plan.calories)}
-      <div class="macro-bars">
-        <div><b class="num">${n0(t.protein)}</b><span class="muted"> / ${plan.protein.g}g P</span>${bar('protein', t.protein, plan.protein.g)}</div>
-        <div><b class="num">${n0(t.carbs)}</b><span class="muted"> / ${plan.carbs.g}g C</span>${bar('carbs', t.carbs, plan.carbs.g)}</div>
-        <div><b class="num">${n0(t.fat)}</b><span class="muted"> / ${plan.fat.g}g F</span>${bar('fat', t.fat, plan.fat.g)}</div>
-      </div>
-      ${optParts.length ? `<p class="small muted" style="margin:12px 0 0">${optParts.join(' · ')}</p>` : ''}
+      ${macroRings(t, plan)}
+      ${optParts.length ? `<p class="small muted" style="margin:12px 0 0;text-align:center">${optParts.join(' · ')}</p>` : ''}
     </div>
+    <div class="card">${mealCountHtml(meals, date === today() ? 'Meals today' : 'Meals that day')}</div>
 
     ${MEALS.map((m) => {
       const list = entries.filter((e) => e.meal === m.id);
@@ -74,6 +61,7 @@ export async function renderFood(root, params) {
       </div>`;
     }).join('')}`;
 
+  wireMealCount(root, date, () => renderFood(root, params));
   root.querySelectorAll('[data-entry]').forEach((b) => b.addEventListener('click', async () => {
     const entry = entries.find((e) => e.id === Number(b.dataset.entry));
     editEntrySheet(entry, () => renderFood(root, params));

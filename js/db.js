@@ -118,3 +118,14 @@ export function favoriteFoods() {
 export function customFoods() {
   return db.foods.where('source').anyOf('custom', 'barcode').sortBy('name');
 }
+
+// How many meals you plan to eat on a date. Set day by day; a new day starts
+// with the last number you picked.
+export async function getMealCount(date) {
+  return (await getSetting(`meals:${date}`)) || (await getSetting('mealsDefault')) || 3;
+}
+
+export async function setMealCount(date, n) {
+  await setSetting(`meals:${date}`, n);
+  await setSetting('mealsDefault', n);
+}

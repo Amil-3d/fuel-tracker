@@ -1,29 +1,41 @@
-import { db, logFood, saveFood, deleteFood, recentFoods, favoriteFoods, customFoods, getEntries, getProfile, saveProfile } from '../db.js';
+import { db, logFood, saveFood, deleteFood, recentFoods, favoriteFoods, customFoods, getEntries, getProfile, saveProfile, getMealCount } from '../db.js';
 import { setTitle, esc, n0, today, openSheet, stepper, wireSteppers, seg, num, toast } from '../ui.js';
-import { MEALS, NUTRIENTS, OPTIONAL, mealForNow, mealLabel, entryTotals, sumTotals, macroLine } from '../nutrition.js';
+import { MEALS, NUTRIENTS, OPTIONAL, mealForNow, mealLabel, entryTotals, sumTotals, macroLine, portionText } from '../nutrition.js';
 import { dayLabel } from './food.js';
 import { startScanner, lookupBarcode, cleanCode } from '../barcode.js';
 import { loadMenu, menuCached, matchMeal, hasNutrition, foodFromMenuItem, menuCandidates, strictMeal, SCHOOLS, schoolInfo } from '../menu.js';
 import { loadContext } from '../state.js';
-import { remaining, mealBudget, rank, buildPlate } from '../recommend.js';
+import { remaining, mealBudget, mealsLeft, rank, buildPlate } from '../recommend.js';
+import { mealCountHtml, wireMealCount } from './meal-count.js';
 
 const TABS = [
+  { id: 'dining', label: 'Dining' },
   { id: 'picks', label: 'Best picks' },
   { id: 'recent', label: 'Recent' },
   { id: 'favorites', label: 'Favorites' },
   { id: 'mine', label: 'My foods' },
-  { id: 'dining', label: 'Dining' },
   { id: 'quick', label: 'Quick add' }
 ];
 
-let lastTab = 'recent';
+let lastTab = null;
 
 export async function renderFoodAdd(root, params) {
   const date = params.get('date') || today();
   let meal = params.get('meal') || mealForNow();
-  let tab = params.get('tab') || lastTab;
+  const ctx = await loadContext();
+  let school = ctx.profile.school;
+  const entries = await getEntries(date);
+  const eaten = sumTotals(entries);
+  const left = remaining(ctx.plan, eaten);
+  let plannedMeals = await getMealCount(date);
+  const hasDining = school !== 'none';
+  const tabs = TABS.filter((t) => hasDining || t.id !== 'dining');
+  let tab = params.get('tab') || lastTab || (hasDining ? 'dining' : 'recent');
+  if (!tabs.some((t) => t.id === tab)) tab = 'recent';
   let query = '';
   const back = `#/food?date=${date}`;
+  // This meal's share of what's left, split over the meals you still plan to eat today.
+  const budgetFor = () => mealBudget(left, mealsLeft(plannedMeals, entries, meal));
 
   setTitle('Add food', `<a class="link-btn" href="${back}">Done</a>`);
 
@@ -31,16 +43,16 @@ export async function renderFoodAdd(root, params) {
     <p class="small muted" style="margin:0 4px 8px">${esc(dayLabel(date))}</p>
     ${seg('meal', MEALS.map((m) => ({ value: m.id, label: m.label })), meal)}
     <button type="button" class="btn block" data-scan style="margin-top:12px">${CAMERA_ICON} Scan barcode</button>
-    <div class="tabs" role="tablist">${TABS.map((t) => `<button type="button" class="chip" data-tab="${t.id}">${t.label}</button>`).join('')}</div>
+    <div class="tabs" role="tablist">${tabs.map((t) => `<button type="button" class="chip" data-tab="${t.id}">${t.label}</button>`).join('')}</div>
     <div data-search style="margin-top:8px"><input type="search" placeholder="Search your foods" autocomplete="off" enterkeyhint="search"></div>
     <div data-body></div>`;
 
-  const ctx = await loadContext();
-  let school = ctx.profile.school;
-  const eaten = sumTotals(await getEntries(date));
-  const left = remaining(ctx.plan, eaten);
-
-  root.querySelectorAll('input[name=meal]').forEach((r) => r.addEventListener('change', () => { meal = r.value; if (tab === 'quick' || tab === 'picks') draw(); }));
+  root.querySelectorAll('input[name=meal]').forEach((r) => r.addEventListener('change', () => {
+    meal = r.value;
+    // The dining menu follows the meal picked at the top.
+    dining.meal = null;
+    if (tab === 'quick' || tab === 'picks' || tab === 'dining') draw();
+  }));
   const body = root.querySelector('[data-body]');
   const searchBox = root.querySelector('[data-search]');
   const search = searchBox.querySelector('input');
@@ -153,7 +165,8 @@ export async function renderFoodAdd(root, params) {
     const courts = menu.courts.filter((c) => menu.menus[c]?.[dining.date]);
     if (!courts.includes(dining.court)) dining.court = courts[0];
     const meals = menu.menus[dining.court]?.[dining.date] || [];
-    if (!meals.some((m) => m.name === dining.meal)) dining.meal = matchMeal(meals, meal);
+    if (!meals.some((m) => m.name === dining.meal)) dining.meal = strictMeal(meals, meal) || matchMeal(meals, meal);
+    const servesMeal = strictMeal(meals, meal) != null;
 
     const q = dining.query.toLowerCase();
     const row = (id, court, where) => {
@@ -162,7 +175,7 @@ export async function renderFoodAdd(root, params) {
       const ok = hasNutrition(it);
       return `<button class="food-row" data-menu-item="${esc(id)}" ${ok ? '' : 'disabled'}>
         <div class="grow"><div class="name">${esc(it.name)}${it.vegan ? ' <span class="tag">VG</span>' : it.veg ? ' <span class="tag">V</span>' : ''}</div>
-          <div class="sub">${where ? esc(where) + ' · ' : ''}${ok ? `${esc(it.serving || '1 serving')} · ${macroLine(it)}` : 'No nutrition info posted'}</div></div>
+          <div class="sub">${where ? esc(where) + ' · ' : ''}${ok ? `<span class="portion">${esc(portionText(it.serving))}</span> · ${macroLine(it)}` : 'No nutrition info posted'}</div></div>
         <div class="kcal">${ok ? n0(it.kcal) : '–'}</div></button>`;
     };
 
@@ -182,7 +195,8 @@ export async function renderFoodAdd(root, params) {
       list = hits.length ? `<div class="card">${hits.join('')}</div>` : '<div class="card empty small">Nothing matches on this day.</div>';
     } else {
       const m = meals.find((x) => x.name === dining.meal);
-      const picks = m ? diningPicks(menu, dining.court, m) : '';
+      const note = !servesMeal && m ? `<div class="notice info">${esc(dining.court)} isn't serving ${esc(mealLabel(meal).toLowerCase())} ${dining.date === today() ? 'today' : 'that day'}. Showing ${esc(m.name.toLowerCase())} instead.</div>` : '';
+      const picks = note + (m ? diningPicks(menu, dining.court, m) : '');
       list = picks + (m ? m.stations.map((st) => `<div class="card"><h3>${esc(st.name)}</h3>${st.items.map((id) => row(id)).join('')}</div>`).join('')
         : '<div class="card empty small">No meals posted here.</div>');
     }
@@ -211,38 +225,42 @@ export async function renderFoodAdd(root, params) {
     });
     body.querySelectorAll('[data-menu-item]').forEach((b) => b.addEventListener('click', async () => {
       const food = await foodFromMenuItem(b.dataset.menuItem, menu.items[b.dataset.menuItem], school);
-      servingsSheet(food, meal, date, afterLog, () => drawDining());
+      servingsSheet(food, meal, date, afterLog, () => drawDining(), { servings: Number(b.dataset.servings) || 1 });
     }));
     wirePlate(body, menu);
   }
 
   // Top picks and a suggested plate for one dining location's meal.
   function diningPicks(menu, court, m) {
-    const budget = mealBudget(left, meal);
+    const budget = budgetFor();
     if (budget.dayKcal < 30) return '';
     const cands = [];
     for (const st of m.stations) for (const id of st.items) {
       const it = menu.items[id];
-      if (hasNutrition(it)) cands.push({ key: id, name: it.name, per: it, court, station: st.name, veg: it.veg, vegan: it.vegan });
+      if (hasNutrition(it)) cands.push({ key: id, name: it.name, per: it, court, meal: m.name, station: st.name, veg: it.veg, vegan: it.vegan });
     }
     const top = rank(cands, budget, 3);
     if (!top.length) return '';
     const plate = buildPlate(cands, budget);
-    return `<div class="card"><h3>Best picks here</h3>
-      <p class="small muted" style="margin:2px 0 0">For about ${n0(budget.kcal)} kcal of the ${n0(budget.dayKcal)} you have left.</p>
+    return `<div class="card"><h3>Best ${esc(m.name.toLowerCase())} picks at ${esc(court)}</h3>
+      <p class="small muted" style="margin:2px 0 0">For about ${n0(budget.kcal)} kcal of the ${n0(budget.dayKcal)} you have left today.</p>
       ${top.map((p) => pickRow(p, p.station)).join('')}
       ${plate.items.length > 1 ? `<details><summary>Build a plate</summary>${plateHtml(plate)}</details>` : ''}</div>`;
   }
 
   // ---- Best picks: what fills your remaining macros without going over ----
   async function drawPicks() {
-    const budget = mealBudget(left, meal);
+    const budget = budgetFor();
     const need = (v) => n0(Math.max(0, v));
-    const head = `<div class="card"><h3>Best picks for ${esc(mealLabel(meal))}</h3>
-      <p class="small muted" style="margin:4px 0 0">${n0(Math.max(0, left.kcal))} kcal left ${date === today() ? 'today' : 'that day'}. Still to go: protein ${need(left.protein)}g · carbs ${need(left.carbs)}g · fat ${need(left.fat)}g.</p>
-      ${budget.dayKcal >= 30 ? `<p class="small muted" style="margin:4px 0 0">Ranked for about ${n0(budget.kcal)} kcal at this meal, favoring protein, fiber and less sodium and sugar. Nothing here puts you over.</p>` : ''}</div>`;
+    const ml = mealsLeft(plannedMeals, entries, meal);
+    const head = `<div class="card stack">
+      ${mealCountHtml(plannedMeals, date === today() ? 'Meals today' : 'Meals that day')}
+      <p class="small muted" style="margin:0">${n0(Math.max(0, left.kcal))} kcal left ${date === today() ? 'today' : 'that day'}. Still to go: protein ${need(left.protein)}g · carbs ${need(left.carbs)}g · fat ${need(left.fat)}g.</p>
+      ${budget.dayKcal >= 30 ? `<p class="small" style="margin:0"><b>${esc(mealLabel(meal))} target: about ${n0(budget.kcal)} kcal</b> · P ${n0(budget.protein)}g · C ${n0(budget.carbs)}g · F ${n0(budget.fat)}g${ml > 1 ? ` (what's left split over ${ml} meals)` : ' (everything left today)'}.</p>` : ''}</div>`;
+    const wire = () => wireMealCount(body, date, (n) => { plannedMeals = n; drawPicks(); });
     if (budget.dayKcal < 30) {
       body.innerHTML = head + '<div class="card empty"><h3>You\'ve hit your calories</h3><p class="small">Anything more goes over your target. Water, black coffee, tea or plain veggies are the safest bets.</p></div>';
+      wire();
       return;
     }
     body.innerHTML = head + '<div class="empty small">Finding picks…</div>';
@@ -254,67 +272,82 @@ export async function renderFoodAdd(root, params) {
       try { menu = await loadMenu(school); } catch (e) { menu = null; }
     }
     if (tab !== 'picks') return;
+    const mealWord = mealLabel(meal).toLowerCase();
     if (menu && menu.dates.includes(date)) {
+      // Only locations actually serving this meal on this day.
       const cands = menuCandidates(menu, date, (meals) => strictMeal(meals, meal));
+      const serving = [...new Set(cands.map((c) => c.court))];
       const top = rank(cands, budget, 6);
       // Suggest a plate from the location with the best combination.
       let plate = null;
-      for (const court of new Set(cands.map((c) => c.court))) {
+      for (const court of serving) {
         const p = buildPlate(cands.filter((c) => c.court === court), budget);
         const score = p.items.reduce((sum, x) => sum + x.score, 0);
-        if (p.items.length > 1 && (!plate || score > plate.score)) plate = { ...p, score, court };
+        if (p.items.length > 1 && (!plate || score > plate.score)) plate = { ...p, score, court, mealName: p.items[0].meal };
       }
-      diningHtml = top.length ? `<div class="section-title">${esc(info.name)} dining</div>
-        <div class="card">${top.map((p) => pickRow(p, `${p.court} · ${p.station}`)).join('')}</div>
-        ${plate ? `<div class="card"><h3>Suggested plate at ${esc(plate.court)}</h3>${plateHtml(plate)}</div>` : ''}`
-        : `<div class="card empty small">Nothing on today's ${esc(info.name)} menus fits what you have left.</div>`;
+      const when = date === today() ? 'today' : dayLabel(date).toLowerCase();
+      diningHtml = !serving.length
+        ? `<div class="section-title">${esc(info.name)} dining</div><div class="card empty small">No ${esc(info.places)} list ${esc(mealWord)} ${esc(when)}. Try another meal at the top.</div>`
+        : `<div class="section-title">${esc(mealLabel(meal))} at ${esc(info.name)} · ${esc(dayLabel(date))}</div>
+        <p class="small muted" style="margin:-4px 4px 8px">Serving ${esc(mealWord)}: ${serving.map(esc).join(', ')}</p>
+        ${top.length ? `<div class="card">${top.map((p) => pickRow(p, `${p.court} · ${p.meal} · ${p.station}`)).join('')}</div>` : `<div class="card empty small">Nothing on the ${esc(mealWord)} menus fits what you have left.</div>`}
+        ${plate ? `<div class="card"><h3>Suggested ${esc(plate.mealName.toLowerCase())} plate at ${esc(plate.court)}</h3>${plateHtml(plate)}</div>` : ''}`;
     } else if (!info && school !== 'none') {
       diningHtml = '<div class="card empty small">Pick your school on the Dining tab to include campus menus.</div>';
     }
 
     const saved = (await db.foods.toArray()).filter((f) => f.source !== 'quick' && f.source !== 'menu');
-    const mine = rank(saved.map((f) => ({ key: `f${f.id}`, name: f.name, per: f.per, food: f })), budget, 5);
+    const mine = rank(saved.map((f) => ({ key: `f${f.id}`, name: f.name, per: f.per, serving: f.serving, food: f })), budget, 5);
     const mineHtml = `<div class="section-title">Your foods</div>${mine.length
-      ? `<div class="card">${mine.map((p) => pickRow(p, p.food.serving || '1 serving')).join('')}</div>`
+      ? `<div class="card">${mine.map((p) => pickRow(p, '')).join('')}</div>`
       : '<div class="card empty small">Save or scan foods and the ones that fit will show up here.</div>'}`;
 
     body.innerHTML = head + diningHtml + mineHtml;
+    wire();
     body.querySelectorAll('[data-pick-food]').forEach((b) => b.addEventListener('click', () => {
       const p = mine.find((x) => x.key === b.dataset.pickFood);
-      servingsSheet(p.food, meal, date, afterLog, () => drawPicks());
+      servingsSheet(p.food, meal, date, afterLog, () => drawPicks(), { servings: p.servings });
     }));
     body.querySelectorAll('[data-menu-item]').forEach((b) => b.addEventListener('click', async () => {
       const food = await foodFromMenuItem(b.dataset.menuItem, menu.items[b.dataset.menuItem], school);
-      servingsSheet(food, meal, date, afterLog, () => drawPicks());
+      servingsSheet(food, meal, date, afterLog, () => drawPicks(), { servings: Number(b.dataset.servings) || 1 });
     }));
     if (menu) wirePlate(body, menu);
   }
 
+  // How much to get, in words: "6 oz (170 g)" or "3 pieces · 1.5 servings".
+  function amountText(serving, servings) {
+    const text = portionText(serving, servings);
+    return servings === 1 ? text : `${text} · ${servings} servings`;
+  }
+
   function pickRow(p, where) {
-    const attr = p.food ? `data-pick-food="${esc(p.key)}"` : `data-menu-item="${esc(p.key)}"`;
+    const attr = p.food ? `data-pick-food="${esc(p.key)}"` : `data-menu-item="${esc(p.key)}" data-servings="${p.servings}"`;
     const t = [...p.tags.map((x) => `<span class="tag ${x.good ? '' : 'warn'}">${esc(x.text)}</span>`),
       p.vegan ? '<span class="tag">VG</span>' : p.veg ? '<span class="tag">V</span>' : ''].join('');
     return `<button class="food-row" ${attr}>
       <div class="grow"><div class="name">${esc(p.name)}</div>
-        <div class="sub">${where ? esc(where) + ' · ' : ''}${macroLine(p.per)}</div>
+        ${where ? `<div class="sub">${esc(where)}</div>` : ''}
+        <div class="sub"><span class="portion">Get ${esc(amountText(p.per.serving ?? p.serving, p.servings))}</span> · ${macroLine(p.amount)}</div>
         ${t ? `<div class="tags">${t}</div>` : ''}</div>
-      <div class="kcal">${n0(p.per.kcal)}</div></button>`;
+      <div class="kcal">${n0(p.amount.kcal)}</div></button>`;
   }
 
   function plateHtml(plate) {
     const t = plate.total;
-    return `${plate.items.map((p) => `<div class="row between small" style="padding:6px 0"><span>${esc(p.name)}</span><span class="num muted">${n0(p.per.kcal)}</span></div>`).join('')}
+    return `${plate.items.map((p) => `<div class="row between small" style="padding:6px 0;align-items:flex-start"><span>${esc(p.name)}<br><span class="muted">${esc(p.station)} · ${esc(amountText(p.per.serving, p.servings))}</span></span><span class="num muted">${n0(p.amount.kcal)}</span></div>`).join('')}
       <div class="plate-total small"><span>${n0(t.kcal)} kcal</span><span class="num">${macroLine(t)}</span></div>
-      <button class="btn primary block" data-log-plate="${esc(plate.items.map((p) => p.key).join('|'))}" style="margin-top:8px">Add all to ${esc(mealLabel(meal))}</button>`;
+      <button class="btn primary block" data-log-plate="${esc(plate.items.map((p) => `${p.key}~${p.servings}`).join('|'))}" style="margin-top:8px">Add all to ${esc(mealLabel(meal))}</button>`;
   }
 
   function wirePlate(el, menu) {
     el.querySelectorAll('[data-log-plate]').forEach((b) => b.addEventListener('click', async () => {
       b.disabled = true;
       const ids = b.dataset.logPlate.split('|');
-      for (const id of ids) {
+      for (const part of ids) {
+        const [id, servings] = part.split('~');
         const food = await foodFromMenuItem(id, menu.items[id], school);
-        await logFood(food, { date, meal, servings: 1 });
+        await logFood(food, { date, meal, servings: Number(servings) || 1 });
       }
       toast(`Added ${ids.length} items to ${mealLabel(meal)}`);
       location.hash = back;
@@ -374,16 +407,18 @@ function readNutrients(form, { allowBlankMacros = false } = {}) {
 
 // ---- Sheets ----
 
-function servingsSheet(food, meal, date, onLogged, onChanged) {
+function servingsSheet(food, meal, date, onLogged, onChanged, opts = {}) {
   const editable = food.source === 'custom' || food.source === 'barcode';
   const { el, close } = openSheet(`
     <form novalidate>
       <div class="row between"><h2 class="grow">${esc(food.name)}</h2>${editable ? '<button type="button" class="link-btn" data-edit>Edit</button>' : ''}</div>
-      <p class="small muted" style="margin:0 0 8px">${esc(food.serving || '1 serving')} · ${n0(food.per.kcal)} kcal per serving</p>
+      <p class="small muted" style="margin:0 0 8px">1 serving is ${esc(portionText(food.serving))} · ${n0(food.per.kcal)} kcal</p>
       ${food.source === 'menu' ? `<p class="small muted" style="margin:0 0 8px">Nutrition from ${esc(schoolInfo(food.school || 'purdue')?.dining || 'the dining hall')}.</p>` : ''}
       ${food.source === 'barcode' ? '<p class="small muted" style="margin:0 0 8px">Scanned food. Nutrition comes from Open Food Facts, so give it a quick check against the label (tap Edit to fix).</p>' : ''}
-      <div class="field"><span>Servings</span>${stepper('servings', 1)}
+      ${opts.servings && opts.servings !== 1 ? `<div class="notice info">Suggested: ${opts.servings} servings for this meal.</div>` : ''}
+      <div class="field"><span>Servings</span>${stepper('servings', opts.servings || 1)}
         <div class="chips">${[0.5, 1, 1.5, 2, 3].map((v) => `<button type="button" class="chip" data-chip="${v}">${v}×</button>`).join('')}</div></div>
+      <p class="portion" data-amount style="margin:8px 0 0"></p>
       <table class="totals-table" data-preview></table>
       <button class="btn primary block" type="submit" style="margin-top:16px">Add to ${esc(mealLabel(meal))}</button>
     </form>`);
@@ -392,6 +427,7 @@ function servingsSheet(food, meal, date, onLogged, onChanged) {
     const s = num(form.servings.value) || 0;
     const t = entryTotals({ per: food.per, servings: s });
     el.querySelectorAll('[data-chip]').forEach((c) => c.classList.toggle('on', Number(c.dataset.chip) === s));
+    el.querySelector('[data-amount]').textContent = s > 0 ? `That's ${portionText(food.serving, s)}` : '';
     el.querySelector('[data-preview]').innerHTML = NUTRIENTS.filter((n) => t[n.key] != null)
       .map((n) => `<tr><td>${n.label}</td><td>${n0(t[n.key])} ${n.unit}</td></tr>`).join('');
   };

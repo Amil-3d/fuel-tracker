@@ -45,3 +45,37 @@ export function lineChart(points, opts = {}) {
     ${showDots ? points.map((p, k) => `<circle class="dot" cx="${sx(xs[k])}" cy="${sy(p.value)}" r="3.5"/>`).join('') : ''}
   </svg></div>`;
 }
+
+// Progress rings: how much of each target you've eaten, with the fraction in the middle.
+// items: [{ label, eaten, target, unit, color }]
+export function progressRings(items) {
+  const r = 30;
+  const c = 2 * Math.PI * r;
+  return `<div class="rings">${items.map((it) => {
+    const frac = it.target > 0 ? it.eaten / it.target : 0;
+    const over = frac > 1.05;
+    const shown = Math.min(1, Math.max(0, frac));
+    const left = it.target - it.eaten;
+    const fmt = (v) => Math.round(v).toLocaleString('en-US');
+    return `<div class="ring" role="img" aria-label="${it.label}: ${fmt(it.eaten)} of ${fmt(it.target)}${it.unit}">
+      <svg viewBox="0 0 76 76" aria-hidden="true">
+        <circle cx="38" cy="38" r="${r}" class="ring-track"/>
+        ${shown > 0 ? `<circle cx="38" cy="38" r="${r}" class="ring-arc" style="stroke:${over ? 'var(--danger)' : it.color}"
+          stroke-dasharray="${(shown * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 38 38)"/>` : ''}
+        <text x="38" y="36" class="ring-val">${fmt(it.eaten)}</text>
+        <text x="38" y="50" class="ring-of">/ ${fmt(it.target)}${it.unit}</text>
+      </svg>
+      <div class="ring-label">${it.label}</div>
+      <div class="ring-left ${over ? 'over' : ''}">${left >= 0 ? `${fmt(left)}${it.unit} left` : `${fmt(-left)}${it.unit} over`}</div>
+    </div>`;
+  }).join('')}</div>`;
+}
+
+export function macroRings(eaten, plan) {
+  return progressRings([
+    { label: 'Calories', eaten: eaten.kcal, target: plan.calories, unit: '', color: 'var(--accent)' },
+    { label: 'Protein', eaten: eaten.protein, target: plan.protein.g, unit: 'g', color: 'var(--protein)' },
+    { label: 'Carbs', eaten: eaten.carbs, target: plan.carbs.g, unit: 'g', color: 'var(--carbs)' },
+    { label: 'Fat', eaten: eaten.fat, target: plan.fat.g, unit: 'g', color: 'var(--fat)' }
+  ]);
+}
