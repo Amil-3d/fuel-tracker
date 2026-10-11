@@ -2,6 +2,7 @@ import { db, logFood, saveFood, deleteFood, recentFoods, favoriteFoods, customFo
 import { setTitle, esc, n0, today, openSheet, stepper, wireSteppers, seg, num, toast } from '../ui.js';
 import { MEALS, NUTRIENTS, OPTIONAL, mealForNow, mealLabel, entryTotals, servingText, macroLine } from '../nutrition.js';
 import { dayLabel } from './food.js';
+import { startScanner, lookupBarcode, cleanCode } from '../barcode.js';
 
 const TABS = [
   { id: 'recent', label: 'Recent' },
@@ -25,6 +26,7 @@ export async function renderFoodAdd(root, params) {
   root.innerHTML = `
     <p class="small muted" style="margin:0 4px 8px">${esc(dayLabel(date))}</p>
     ${seg('meal', MEALS.map((m) => ({ value: m.id, label: m.label })), meal)}
+    <button type="button" class="btn block" data-scan style="margin-top:12px">${CAMERA_ICON} Scan barcode</button>
     <div class="tabs" role="tablist">${TABS.map((t) => `<button type="button" class="chip" data-tab="${t.id}">${t.label}</button>`).join('')}</div>
     <div data-search style="margin-top:8px"><input type="search" placeholder="Search your foods" autocomplete="off" enterkeyhint="search"></div>
     <div data-body></div>`;
@@ -40,6 +42,15 @@ export async function renderFoodAdd(root, params) {
     toast(`Added ${food.name} to ${mealLabel(meal)}`);
     location.hash = back;
   };
+
+  root.querySelector('[data-scan]').addEventListener('click', () => scanSheet({
+    onFood: (food) => servingsSheet(food, meal, date, afterLog, () => draw()),
+    onMissing: (code, partial) => foodFormSheet(
+      { name: '', serving: '', per: {}, ...(partial || {}), barcode: code, source: 'barcode', id: undefined },
+      (food, andLog) => { if (food && andLog) servingsSheet(food, meal, date, afterLog); else draw(); },
+      { isNew: true, note: partial ? 'Found this product, but it has no calorie info. Fill it in from the label.' : "This barcode isn't in the free database yet. Add it from the label and it'll be saved for next time." }
+    )
+  }));
 
   async function draw() {
     root.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
@@ -145,11 +156,12 @@ function readNutrients(form, { allowBlankMacros = false } = {}) {
 // ---- Sheets ----
 
 function servingsSheet(food, meal, date, onLogged, onChanged) {
-  const editable = food.source === 'custom';
+  const editable = food.source === 'custom' || food.source === 'barcode';
   const { el, close } = openSheet(`
     <form novalidate>
       <div class="row between"><h2 class="grow">${esc(food.name)}</h2>${editable ? '<button type="button" class="link-btn" data-edit>Edit</button>' : ''}</div>
       <p class="small muted" style="margin:0 0 8px">${esc(food.serving || '1 serving')} · ${n0(food.per.kcal)} kcal per serving</p>
+      ${food.source === 'barcode' ? '<p class="small muted" style="margin:0 0 8px">Scanned food. Nutrition comes from Open Food Facts, so give it a quick check against the label (tap Edit to fix).</p>' : ''}
       <div class="field"><span>Servings</span>${stepper('servings', 1)}
         <div class="chips">${[0.5, 1, 1.5, 2, 3].map((v) => `<button type="button" class="chip" data-chip="${v}">${v}×</button>`).join('')}</div></div>
       <table class="totals-table" data-preview></table>
@@ -181,11 +193,15 @@ function servingsSheet(food, meal, date, onLogged, onChanged) {
 }
 
 // Create or edit a custom food. onSaved(food, andLog)
-function foodFormSheet(food, onSaved) {
+// opts.isNew: treat a prefilled food (e.g. from a barcode) as a new one.
+function foodFormSheet(food, onSaved, opts = {}) {
   const f = food || { name: '', serving: '', per: {}, favorite: 0 };
+  const isEdit = Boolean(food && food.id) && !opts.isNew;
   const { el, close } = openSheet(`
     <form novalidate>
-      <h2>${food ? 'Edit food' : 'New custom food'}</h2>
+      <h2>${isEdit ? 'Edit food' : 'New custom food'}</h2>
+      ${opts.note ? `<div class="notice info">${esc(opts.note)}</div>` : ''}
+      ${f.barcode ? `<p class="small muted" style="margin:4px 0 0">Barcode ${esc(f.barcode)}</p>` : ''}
       <label class="field"><span>Name</span><input type="text" name="name" value="${esc(f.name)}" placeholder="Greek yogurt" autocomplete="off"></label>
       <label class="field"><span>Serving size</span><input type="text" name="serving" value="${esc(f.serving)}" placeholder="1 cup (227 g)" autocomplete="off">
         <div class="hint">Enter the nutrition for one serving.</div></label>
@@ -194,7 +210,7 @@ function foodFormSheet(food, onSaved) {
       <label class="row" style="min-height:44px"><input type="checkbox" name="favorite" style="width:22px;height:22px" ${f.favorite ? 'checked' : ''}> Favorite</label>
       <div class="error" data-error></div>
       <div class="nav-row">
-        ${food ? '<button type="button" class="btn danger" data-delete>Delete</button><button class="btn primary" type="submit">Save</button>'
+        ${isEdit ? '<button type="button" class="btn danger" data-delete>Delete</button><button class="btn primary" type="submit">Save</button>'
           : '<button type="submit" class="btn" data-save-only>Save</button><button class="btn primary" type="submit" data-and-log>Save &amp; add</button>'}
       </div>
     </form>`);
@@ -205,10 +221,11 @@ function foodFormSheet(food, onSaved) {
     if (!name) { form.querySelector('[data-error]').textContent = 'Enter a name.'; return; }
     const per = readNutrients(form);
     if (per.error) { form.querySelector('[data-error]').textContent = per.error; return; }
-    const row = { ...f, name, serving: form.serving.value.trim(), per: per.values, source: 'custom', favorite: form.favorite.checked ? 1 : 0 };
+    const row = { ...f, name, serving: form.serving.value.trim(), per: per.values, source: f.barcode ? 'barcode' : 'custom', favorite: form.favorite.checked ? 1 : 0 };
+    if (!row.id) delete row.id;
     row.id = await saveFood(row);
     close();
-    toast(food ? 'Food updated' : 'Food saved');
+    toast(isEdit ? 'Food updated' : 'Food saved');
     onSaved(row, e.submitter?.hasAttribute('data-and-log'));
   });
   el.querySelector('[data-delete]')?.addEventListener('click', async () => {
@@ -217,4 +234,69 @@ function foodFormSheet(food, onSaved) {
     close();
     onSaved(null, false);
   });
+}
+
+// ---- Barcode scanning ----
+
+const CAMERA_ICON = '<svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2M7 8v8M10 8v8M13 8v8M17 8v8"/></svg>';
+
+function scanSheet({ onFood, onMissing }) {
+  let stop = () => {};
+  const { el, close } = openSheet(`
+    <h2>Scan barcode</h2>
+    <div class="scan-view"><video playsinline muted autoplay></video><div class="scan-frame"></div></div>
+    <p class="small muted" data-status style="margin:10px 0 0">Starting camera…</p>
+    <form class="row" data-manual style="margin-top:12px" novalidate>
+      <input type="text" inputmode="numeric" name="code" placeholder="Or type the barcode number" autocomplete="off" class="grow">
+      <button class="btn" type="submit">Look up</button>
+    </form>
+    <button type="button" class="btn block" data-close style="margin-top:12px">Cancel</button>`, { onClose: () => stop() });
+
+  const status = el.querySelector('[data-status]');
+  const setStatus = (text) => { status.textContent = text; };
+  let busy = false;
+
+  const handle = async (code) => {
+    if (busy) return;
+    busy = true;
+    stop();
+    setStatus(`Looking up ${cleanCode(code)}…`);
+    const r = await lookupBarcode(code);
+    busy = false;
+    if (r.error) { setStatus(r.error); return; }
+    close();
+    if (r.notFound) { onMissing(cleanCode(code), r.partial); return; }
+    let food = r.food;
+    if (!r.saved) {
+      // Save scanned products so re-scanning works offline and they show up in My foods.
+      food = { ...food, favorite: 0, uses: 0, lastUsed: 0 };
+      food.id = await saveFood(food);
+    }
+    onFood(food);
+  };
+
+  el.querySelector('[data-manual]').addEventListener('submit', (e) => {
+    e.preventDefault();
+    const code = e.target.code.value;
+    if (cleanCode(code).length < 6) { setStatus('Enter the numbers under the barcode.'); return; }
+    handle(code);
+  });
+
+  const video = el.querySelector('video');
+  if (!navigator.mediaDevices?.getUserMedia) {
+    setStatus("This browser can't open the camera. Type the barcode number instead.");
+    return;
+  }
+  startScanner(video, handle)
+    .then((s) => {
+      stop = s;
+      if (!busy) setStatus('Point the camera at the barcode.');
+      if (!document.body.contains(el)) s();
+    })
+    .catch((err) => {
+      const denied = err && (err.name === 'NotAllowedError' || err.name === 'SecurityError');
+      setStatus(denied
+        ? 'Camera access was blocked. Allow it when asked, or type the barcode number below.'
+        : (err && err.message) || 'Could not start the camera. Type the barcode number below.');
+    });
 }

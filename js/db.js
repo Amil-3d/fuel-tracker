@@ -12,6 +12,11 @@ db.version(1).stores({
   activity: 'date'                                 // { date, steps, activeKcal } from Shortcuts
 });
 
+// v2: foods can carry a scanned barcode.
+db.version(2).stores({
+  foods: '++id, name, source, favorite, lastUsed, barcode'
+});
+
 export async function getSetting(key, fallback = null) {
   const row = await db.settings.get(key);
   return row ? row.value : fallback;
@@ -59,7 +64,7 @@ export async function requestPersistence() {
 
 // ---- Foods and food log ----
 // Food: { id, name, serving, per: { kcal, protein, carbs, fat, fiber?, sugar?, sodium? },
-//         source: 'custom' | 'quick' | 'menu', favorite: 0|1, lastUsed: ms, uses }
+//         source: 'custom' | 'barcode' | 'quick' | 'menu', barcode?, favorite: 0|1, lastUsed: ms, uses }
 // Entry: { id, date, meal, foodId, name, serving, servings, per, createdAt }
 
 export function getEntries(date) {
@@ -109,6 +114,7 @@ export function favoriteFoods() {
   return db.foods.where('favorite').equals(1).sortBy('name');
 }
 
+// Foods you created or scanned (excludes quick adds and dining menu items).
 export function customFoods() {
-  return db.foods.where('source').equals('custom').sortBy('name');
+  return db.foods.where('source').anyOf('custom', 'barcode').sortBy('name');
 }

@@ -278,3 +278,8 @@ body.sheet-open { overflow: hidden; }
 details summary { cursor: pointer; color: var(--accent); font-weight: 600; min-height: 44px; display: flex; align-items: center; }
 a.icon-btn, a.link-btn { text-decoration: none; color: var(--text); }
 a.link-btn { color: var(--accent); display: inline-flex; align-items: center; }
+
+/* Barcode scanner */
+.scan-view { position: relative; border-radius: 16px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; margin-top: 8px; }
+.scan-view video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.scan-frame { position: absolute; left: 10%; right: 10%; top: 32%; bottom: 32%; border: 3px solid rgba(255,255,255,.9); border-radius: 12px; box-shadow: 0 0 0 999px rgba(0,0,0,.25); }
