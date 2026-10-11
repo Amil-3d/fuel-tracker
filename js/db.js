@@ -129,3 +129,8 @@ export async function setMealCount(date, n) {
   await setSetting(`meals:${date}`, n);
   await setSetting('mealsDefault', n);
 }
+
+// Dates (YYYY-MM-DD) that have at least one food logged.
+export async function loggedDates() {
+  return new Set(await db.entries.orderBy('date').uniqueKeys());
+}

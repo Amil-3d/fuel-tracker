@@ -203,10 +203,10 @@ export async function renderFoodAdd(root, params) {
 
     const dayChip = (d) => `<button type="button" class="chip ${d === dining.date ? 'on' : ''}" data-ddate="${d}">${esc(dayLabel(d))}</button>`;
     body.innerHTML = `
-      <div class="chips" style="margin-top:8px">${dates.map(dayChip).join('')}</div>
-      <div class="chips">${courts.map((c) => `<button type="button" class="chip ${c === dining.court ? 'on' : ''}" data-dcourt="${esc(c)}">${esc(c)}</button>`).join('')}</div>
+      <div class="chips scroll" style="margin-top:8px">${dates.map(dayChip).join('')}</div>
+      <div class="chips scroll">${courts.map((c) => `<button type="button" class="chip ${c === dining.court ? 'on' : ''}" data-dcourt="${esc(c)}">${esc(c)}</button>`).join('')}</div>
       <div style="margin-top:10px"><input type="search" data-dsearch placeholder="Search all ${esc(info.places)}" value="${esc(dining.query)}" autocomplete="off" enterkeyhint="search"></div>
-      ${q ? '' : `<div class="chips">${meals.map((m) => `<button type="button" class="chip ${m.name === dining.meal ? 'on' : ''}" data-dmeal="${esc(m.name)}">${esc(m.name)}${m.start ? ` <span class="muted small">${fmtTime(m.start)}–${fmtTime(m.end)}</span>` : ''}</button>`).join('')}</div>`}
+      ${q ? '' : `<div class="chips scroll">${meals.map((m) => `<button type="button" class="chip ${m.name === dining.meal ? 'on' : ''}" data-dmeal="${esc(m.name)}">${esc(m.name)}${m.start ? ` <span class="muted small">${fmtTime(m.start)}–${fmtTime(m.end)}</span>` : ''}</button>`).join('')}</div>`}
       ${list}
       <p class="small muted" style="text-align:center">Menus from ${esc(info.dining)}, updated ${esc(new Date(menu.generated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}.</p>`;
 

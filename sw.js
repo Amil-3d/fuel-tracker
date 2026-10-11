@@ -1,6 +1,6 @@
 // Service worker: precache the app shell so it works offline.
 // Bump VERSION whenever any shell file changes so phones pick up the update.
-const VERSION = 'fuel-v9';
+const VERSION = 'fuel-v10';
 const DEXIE_URL = 'https://cdn.jsdelivr.net/npm/dexie@4.0.10/dist/dexie.mjs';
 const ZXING_URL = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
 
@@ -23,6 +23,7 @@ const SHELL = [
   'js/barcode.js',
   'js/menu.js',
   'js/charts.js',
+  'js/icons.js',
   'js/recommend.js',
   'js/views/onboarding.js',
   'js/views/plan-card.js',

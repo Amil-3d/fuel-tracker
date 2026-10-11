@@ -73,9 +73,23 @@ export function progressRings(items) {
 
 export function macroRings(eaten, plan) {
   return progressRings([
-    { label: 'Calories', eaten: eaten.kcal, target: plan.calories, unit: '', color: 'var(--accent)' },
+    { label: 'Calories', eaten: eaten.kcal, target: plan.calories, unit: '', color: 'var(--ink)' },
     { label: 'Protein', eaten: eaten.protein, target: plan.protein.g, unit: 'g', color: 'var(--protein)' },
     { label: 'Carbs', eaten: eaten.carbs, target: plan.carbs.g, unit: 'g', color: 'var(--carbs)' },
     { label: 'Fat', eaten: eaten.fat, target: plan.fat.g, unit: 'g', color: 'var(--fat)' }
   ]);
+}
+
+// One ring with an icon in the middle (Today screen cards).
+export function iconRing(frac, color, icon, size = 64, stroke = 7) {
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const shown = Math.min(1, Math.max(0, frac || 0));
+  const over = frac > 1.05;
+  return `<div class="icon-ring" style="width:${size}px;height:${size}px;color:${over ? 'var(--danger)' : color}">
+    <svg viewBox="0 0 ${size} ${size}" aria-hidden="true">
+      <circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="var(--surface-2)" stroke-width="${stroke}"/>
+      ${shown > 0 ? `<circle cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke="currentColor" stroke-width="${stroke}" stroke-linecap="round"
+        stroke-dasharray="${(shown * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size / 2} ${size / 2})"/>` : ''}
+    </svg><span class="icon-ring-icon">${icon}</span></div>`;
 }
