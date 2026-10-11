@@ -3,7 +3,6 @@ import { renderOnboarding } from './views/onboarding.js';
 import { renderToday } from './views/today.js';
 import { renderProgress } from './views/progress.js';
 import { renderSettings } from './views/settings.js';
-import { placeholder } from './views/placeholder.js';
 import { renderFood } from './views/food.js';
 import { renderFoodAdd } from './views/food-add.js';
 import { applyTheme } from './ui.js';
@@ -11,7 +10,6 @@ import { applyTheme } from './ui.js';
 const routes = {
   today: renderToday,
   food: (root, sub, params) => (sub === 'add' ? renderFoodAdd(root, params) : renderFood(root, params)),
-  exercise: placeholder('Exercise', 3, 'Log workouts and strength sets, with calories burned estimated from MET values.'),
   progress: renderProgress,
   settings: renderSettings
 };

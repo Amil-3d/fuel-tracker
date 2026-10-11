@@ -55,7 +55,6 @@ export async function renderFood(root, params) {
         <div><b class="num">${n0(t.fat)}</b><span class="muted"> / ${plan.fat.g}g F</span>${bar('fat', t.fat, plan.fat.g)}</div>
       </div>
       ${optParts.length ? `<p class="small muted" style="margin:12px 0 0">${optParts.join(' · ')}</p>` : ''}
-      <p class="small muted" style="margin:10px 0 0">Exercise calories are added to your budget in phase 3.</p>
     </div>
 
     ${MEALS.map((m) => {

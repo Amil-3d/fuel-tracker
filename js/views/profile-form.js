@@ -52,7 +52,7 @@ export function activityField(activity) {
   return `<div class="field"><span>Activity level</span><div class="options">
     ${ACTIVITY_LEVELS.map((a) => `<label class="option"><input type="radio" name="activity" value="${a.id}" ${a.id === activity ? 'checked' : ''}>
       <div><strong>${esc(a.label)}</strong><small>${esc(a.desc)} · ×${a.factor}</small></div></label>`).join('')}
-  </div><div class="hint">Since you'll log workouts separately, pick based on your typical day without them, so exercise isn't counted twice.</div></div>`;
+  </div><div class="hint">Include your usual workouts when you pick, since exercise isn't logged separately.</div></div>`;
 }
 
 export function goalField(goal) {

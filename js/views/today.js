@@ -32,6 +32,5 @@ export async function renderToday(root) {
     </div>
     <div class="card">
       <div class="row between"><h3>How was this calculated?</h3><a class="btn small" href="#/settings/plan">Show math</a></div>
-    </div>
-    <p class="muted small" style="text-align:center">Exercise logging arrives in the next phase.</p>`;
+    </div>`;
 }

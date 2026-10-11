@@ -12,7 +12,7 @@ export function renderOnboarding(root, onDone) {
   const s = {
     units: 'imperial', sex: null, birthDate: '', heightCm: null, kg: null,
     activity: 'light', goal: 'lose', targetKg: null, ratePerWeekKg: null,
-    proteinPerKg: null, fatMinPct: null, exerciseCredit: 'half'
+    proteinPerKg: null, fatMinPct: null
   };
 
   const steps = [

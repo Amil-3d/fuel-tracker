@@ -19,9 +19,6 @@ export async function renderSettings(root, sub) {
     <div class="section-title">Preferences</div>
     <form class="card" data-prefs>
       <div class="field"><span>Units</span>${seg('units', [{ value: 'imperial', label: 'lb · ft/in' }, { value: 'metric', label: 'kg · cm' }], units)}</div>
-      <div class="field"><span>Exercise calories added to your budget</span>
-        ${seg('exerciseCredit', [{ value: 'full', label: 'Full' }, { value: 'half', label: 'Half' }, { value: 'none', label: 'None' }], profile.exerciseCredit || 'half')}
-        <div class="hint">Half is a common choice because calorie burn estimates tend to run high.</div></div>
       <div class="field"><span>Appearance</span>
         ${seg('theme', [{ value: 'system', label: 'Auto' }, { value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }], theme)}</div>
     </form>

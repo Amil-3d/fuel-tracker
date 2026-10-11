@@ -1,6 +1,6 @@
 // Service worker: precache the app shell so it works offline.
 // Bump VERSION whenever any shell file changes so phones pick up the update.
-const VERSION = 'fuel-v4';
+const VERSION = 'fuel-v5';
 const DEXIE_URL = 'https://cdn.jsdelivr.net/npm/dexie@4.0.10/dist/dexie.mjs';
 const ZXING_URL = 'https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js';
 
@@ -30,7 +30,6 @@ const SHELL = [
   'js/views/food-add.js',
   'js/views/progress.js',
   'js/views/settings.js',
-  'js/views/placeholder.js',
   DEXIE_URL,
   ZXING_URL
 ];
