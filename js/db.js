@@ -56,3 +56,59 @@ export async function requestPersistence() {
     try { await navigator.storage.persist(); } catch (e) { /* ignore */ }
   }
 }
+
+// ---- Foods and food log ----
+// Food: { id, name, serving, per: { kcal, protein, carbs, fat, fiber?, sugar?, sodium? },
+//         source: 'custom' | 'quick' | 'menu', favorite: 0|1, lastUsed: ms, uses }
+// Entry: { id, date, meal, foodId, name, serving, servings, per, createdAt }
+
+export function getEntries(date) {
+  return db.entries.where('date').equals(date).sortBy('createdAt');
+}
+
+export function getEntry(id) {
+  return db.entries.get(id);
+}
+
+export function updateEntry(id, changes) {
+  return db.entries.update(id, changes);
+}
+
+export function deleteEntry(id) {
+  return db.entries.delete(id);
+}
+
+export async function logFood(food, { date, meal, servings }) {
+  const now = Date.now();
+  await db.foods.update(food.id, { lastUsed: now, uses: (food.uses || 0) + 1 });
+  return db.entries.add({
+    date, meal, servings, foodId: food.id, name: food.name, serving: food.serving || '',
+    per: { ...food.per }, createdAt: now
+  });
+}
+
+export function saveFood(food) {
+  const row = { favorite: 0, uses: 0, lastUsed: 0, ...food };
+  return row.id ? db.foods.put(row).then(() => row.id) : db.foods.add(row);
+}
+
+export function getFood(id) {
+  return db.foods.get(id);
+}
+
+export function deleteFood(id) {
+  return db.foods.delete(id);
+}
+
+export async function recentFoods(limit = 40) {
+  const rows = await db.foods.orderBy('lastUsed').reverse().limit(limit).toArray();
+  return rows.filter((f) => f.lastUsed > 0);
+}
+
+export function favoriteFoods() {
+  return db.foods.where('favorite').equals(1).sortBy('name');
+}
+
+export function customFoods() {
+  return db.foods.where('source').equals('custom').sortBy('name');
+}

@@ -4,11 +4,13 @@ import { renderToday } from './views/today.js';
 import { renderProgress } from './views/progress.js';
 import { renderSettings } from './views/settings.js';
 import { placeholder } from './views/placeholder.js';
+import { renderFood } from './views/food.js';
+import { renderFoodAdd } from './views/food-add.js';
 import { applyTheme } from './ui.js';
 
 const routes = {
   today: renderToday,
-  food: placeholder('Food', 2, 'Log meals from Purdue dining menus, your own saved foods, or quick-add calories.'),
+  food: (root, sub, params) => (sub === 'add' ? renderFoodAdd(root, params) : renderFood(root, params)),
   exercise: placeholder('Exercise', 3, 'Log workouts and strength sets, with calories burned estimated from MET values.'),
   progress: renderProgress,
   settings: renderSettings
@@ -28,10 +30,13 @@ async function route() {
   tabbar.hidden = false;
   document.body.classList.remove('no-tabs');
 
-  const [name, sub] = (location.hash.replace(/^#\/?/, '') || 'today').split(/[/?]/);
+  const raw = location.hash.replace(/^#\/?/, '') || 'today';
+  const [path, query = ''] = raw.split('?');
+  const [name, sub] = path.split('/');
+  const params = new URLSearchParams(query);
   const render = routes[name] || routes.today;
   tabbar.querySelectorAll('a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (routes[name] ? name : 'today')));
-  await render(view, sub);
+  await render(view, sub, params);
   if (sub !== 'plan') window.scrollTo(0, 0);
 }
 

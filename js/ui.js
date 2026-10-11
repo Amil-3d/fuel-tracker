@@ -65,3 +65,49 @@ export function applyTheme(theme) {
   else delete document.documentElement.dataset.theme;
   try { localStorage.setItem('fuel-theme', theme); } catch (e) { /* ignore */ }
 }
+
+// Bottom sheet. Returns { el, close }. Tapping the backdrop closes it.
+export function openSheet(html, { onClose } = {}) {
+  const backdrop = document.createElement('div');
+  backdrop.className = 'sheet-backdrop';
+  backdrop.innerHTML = `<div class="sheet" role="dialog" aria-modal="true"><div class="sheet-grip"></div>${html}</div>`;
+  document.body.appendChild(backdrop);
+  document.body.classList.add('sheet-open');
+  requestAnimationFrame(() => backdrop.classList.add('show'));
+  const el = backdrop.querySelector('.sheet');
+  const close = () => {
+    backdrop.classList.remove('show');
+    document.body.classList.remove('sheet-open');
+    setTimeout(() => backdrop.remove(), 200);
+    if (onClose) onClose();
+  };
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+  el.querySelectorAll('[data-close]').forEach((b) => b.addEventListener('click', close));
+  return { el, close };
+}
+
+// Number with a − / + stepper.
+export function stepper(name, value, { step = 0.25, min = 0.25, unit = '' } = {}) {
+  return `<div class="stepper" data-step="${step}" data-min="${min}">
+    <button type="button" class="icon-btn" data-dec aria-label="Less">−</button>
+    <div class="input-unit grow"><input type="number" inputmode="decimal" step="any" name="${name}" value="${value}">${unit ? `<em>${unit}</em>` : ''}</div>
+    <button type="button" class="icon-btn" data-inc aria-label="More">+</button>
+  </div>`;
+}
+
+export function wireSteppers(root, onChange) {
+  root.querySelectorAll('.stepper').forEach((s) => {
+    const input = s.querySelector('input');
+    const step = parseFloat(s.dataset.step);
+    const min = parseFloat(s.dataset.min);
+    const bump = (dir) => {
+      const cur = num(input.value) || 0;
+      const next = Math.max(min, Math.round((cur + dir * step) / step) * step);
+      input.value = Math.round(next * 100) / 100;
+      onChange?.();
+    };
+    s.querySelector('[data-dec]').addEventListener('click', () => bump(-1));
+    s.querySelector('[data-inc]').addEventListener('click', () => bump(1));
+    input.addEventListener('input', () => onChange?.());
+  });
+}
