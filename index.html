@@ -37,6 +37,36 @@
   <a class="fab" href="#/food/add" aria-label="Log food"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></a>
   </nav>
   <div id="toast" role="status" aria-live="polite"></div>
+  <div id="crash" hidden></div>
+  <script>
+    // If something breaks, show what happened on screen (instead of a blank page) with a way out.
+    (function () {
+      function show(msg) {
+        var el = document.getElementById('crash');
+        if (!el || !el.hidden) return;
+        el.hidden = false;
+        el.innerHTML = '<b>Something went wrong.</b><pre></pre>' +
+          '<button type="button" data-r>Reload</button> <button type="button" data-x>Reset app files</button>' +
+          '<small>Reset keeps your logged food and weights.</small>';
+        el.querySelector('pre').textContent = msg;
+        el.querySelector('[data-r]').onclick = function () { location.reload(); };
+        el.querySelector('[data-x]').onclick = function () {
+          var jobs = [];
+          if (window.caches) jobs.push(caches.keys().then(function (k) { return Promise.all(k.map(function (n) { return caches.delete(n); })); }));
+          if (navigator.serviceWorker) jobs.push(navigator.serviceWorker.getRegistrations().then(function (r) { return Promise.all(r.map(function (x) { return x.unregister(); })); }));
+          Promise.all(jobs).then(function () { location.reload(); }, function () { location.reload(); });
+        };
+      }
+      window.addEventListener('error', function (e) {
+        var where = e.filename ? ' (' + e.filename.split('/').slice(-2).join('/') + ':' + e.lineno + ')' : '';
+        show((e.message || 'Error') + where);
+      });
+      window.addEventListener('unhandledrejection', function (e) {
+        var r = e.reason;
+        show((r && (r.stack || r.message)) || String(r));
+      });
+    })();
+  </script>
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
