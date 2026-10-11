@@ -162,11 +162,14 @@ export async function renderFoodAdd(root, params) {
     const dates = menu.dates.filter((d) => (d >= today() || d === date) && menu.courts.some((c) => menu.menus[c]?.[d]));
     if (!dates.length) { body.innerHTML = '<div class="card empty"><h3>No menus posted</h3><p class="small">Check back after tomorrow morning\'s update.</p></div>'; return; }
     if (!dining.date || !dates.includes(dining.date)) dining.date = dates.includes(date) ? date : dates[0];
-    const courts = menu.courts.filter((c) => menu.menus[c]?.[dining.date]);
-    if (!courts.includes(dining.court)) dining.court = courts[0];
-    const meals = menu.menus[dining.court]?.[dining.date] || [];
-    if (!meals.some((m) => m.name === dining.meal)) dining.meal = strictMeal(meals, meal) || matchMeal(meals, meal);
-    const servesMeal = strictMeal(meals, meal) != null;
+    const open = menu.courts.filter((c) => menu.menus[c]?.[dining.date]);
+    // Only halls serving the meal picked at the top (search still covers every hall).
+    const courts = open.filter((c) => strictMeal(menu.menus[c][dining.date], meal));
+    const mealWord = mealLabel(meal).toLowerCase();
+    const dayWord = dining.date === today() ? 'today' : dayLabel(dining.date).toLowerCase();
+    if (!courts.includes(dining.court)) dining.court = courts[0] || null;
+    const meals = dining.court ? menu.menus[dining.court][dining.date] : [];
+    dining.meal = dining.court ? strictMeal(meals, meal) : null;
 
     const q = dining.query.toLowerCase();
     const row = (id, court, where) => {
@@ -195,10 +198,9 @@ export async function renderFoodAdd(root, params) {
       list = hits.length ? `<div class="card">${hits.join('')}</div>` : '<div class="card empty small">Nothing matches on this day.</div>';
     } else {
       const m = meals.find((x) => x.name === dining.meal);
-      const note = !servesMeal && m ? `<div class="notice info">${esc(dining.court)} isn't serving ${esc(mealLabel(meal).toLowerCase())} ${dining.date === today() ? 'today' : 'that day'}. Showing ${esc(m.name.toLowerCase())} instead.</div>` : '';
-      const picks = note + (m ? diningPicks(menu, dining.court, m) : '');
+      const picks = m ? diningPicks(menu, dining.court, m) : '';
       list = picks + (m ? m.stations.map((st) => `<div class="card"><h3>${esc(st.name)}</h3>${st.items.map((id) => row(id)).join('')}</div>`).join('')
-        : '<div class="card empty small">No meals posted here.</div>');
+        : `<div class="card empty"><h3>No ${esc(mealWord)} ${esc(dayWord)}</h3><p class="small">None of the ${esc(info.places)} list ${esc(mealWord)} ${esc(dayWord)}. Pick another meal at the top, or another day.</p></div>`);
     }
 
     const dayChip = (d) => `<button type="button" class="chip ${d === dining.date ? 'on' : ''}" data-ddate="${d}">${esc(dayLabel(d))}</button>`;
@@ -206,7 +208,11 @@ export async function renderFoodAdd(root, params) {
       <div class="chips scroll" style="margin-top:8px">${dates.map(dayChip).join('')}</div>
       <div class="chips scroll">${courts.map((c) => `<button type="button" class="chip ${c === dining.court ? 'on' : ''}" data-dcourt="${esc(c)}">${esc(c)}</button>`).join('')}</div>
       <div style="margin-top:10px"><input type="search" data-dsearch placeholder="Search all ${esc(info.places)}" value="${esc(dining.query)}" autocomplete="off" enterkeyhint="search"></div>
-      ${q ? '' : `<div class="chips scroll">${meals.map((m) => `<button type="button" class="chip ${m.name === dining.meal ? 'on' : ''}" data-dmeal="${esc(m.name)}">${esc(m.name)}${m.start ? ` <span class="muted small">${fmtTime(m.start)}–${fmtTime(m.end)}</span>` : ''}</button>`).join('')}</div>`}
+      ${q || !dining.court ? '' : (() => {
+        const m = meals.find((x) => x.name === dining.meal);
+        const hidden = open.length - courts.length;
+        return `<p class="small muted" style="margin:10px 4px 0">${esc(m.name)} at ${esc(dining.court)}${m.start ? ` · ${fmtTime(m.start)}–${fmtTime(m.end)}` : ''}${hidden ? ` · ${hidden} ${hidden === 1 ? 'place' : 'places'} not serving ${esc(mealWord)} hidden` : ''}</p>`;
+      })()}
       ${list}
       <p class="small muted" style="text-align:center">Menus from ${esc(info.dining)}, updated ${esc(new Date(menu.generated).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }))}.</p>`;
 
@@ -216,7 +222,6 @@ export async function renderFoodAdd(root, params) {
       try { localStorage.setItem(courtKey(), dining.court); } catch (e) { /* ignore */ }
       drawDining();
     }));
-    body.querySelectorAll('[data-dmeal]').forEach((b) => b.addEventListener('click', () => { dining.meal = b.dataset.dmeal; drawDining(); }));
     const ds = body.querySelector('[data-dsearch]');
     ds.addEventListener('input', () => {
       dining.query = ds.value.trim();
