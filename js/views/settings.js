@@ -53,7 +53,7 @@ export async function renderSettings(root, sub) {
       <p class="small muted" style="margin:0">All data stays on this phone. Export and import backups arrive in phase 6.</p>
       <button class="btn danger block" data-reset>Erase all data</button>
     </div>
-    <p class="small muted" style="text-align:center">Fuel · phase 2</p>`;
+    <p class="small muted" style="text-align:center">Fuel · phase 2 · <button class="link-btn small" data-refresh>Force update</button></p>`;
 
   // Preferences save instantly.
   const prefs = root.querySelector('[data-prefs]');
@@ -115,6 +115,15 @@ export async function renderSettings(root, sub) {
     if (!confirm('Erase all data on this phone? This cannot be undone.')) return;
     if (!confirm('Are you sure? Everything will be deleted.')) return;
     await db.delete();
+    location.reload();
+  });
+
+  root.querySelector('[data-refresh]').addEventListener('click', async () => {
+    // Clears cached app files (not your data) and reloads the latest version.
+    const keys = await caches.keys();
+    await Promise.all(keys.map((k) => caches.delete(k)));
+    const regs = await navigator.serviceWorker?.getRegistrations?.() || [];
+    await Promise.all(regs.map((r) => r.unregister()));
     location.reload();
   });
 

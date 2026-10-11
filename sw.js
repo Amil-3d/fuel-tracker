@@ -1,6 +1,6 @@
 // Service worker: precache the app shell so it works offline.
 // Bump VERSION whenever any shell file changes so phones pick up the update.
-const VERSION = 'fuel-v2';
+const VERSION = 'fuel-v3';
 const DEXIE_URL = 'https://cdn.jsdelivr.net/npm/dexie@4.0.10/dist/dexie.mjs';
 
 const SHELL = [
@@ -33,7 +33,8 @@ const SHELL = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(SHELL)));
+  // cache: 'reload' skips the browser's HTTP cache, so a new version never precaches stale files.
+  event.waitUntil(caches.open(VERSION).then((cache) => cache.addAll(SHELL.map((url) => new Request(url, { cache: 'reload' })))));
   self.skipWaiting();
 });
 

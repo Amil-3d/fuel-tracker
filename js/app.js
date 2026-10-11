@@ -47,7 +47,12 @@ async function boot() {
   requestPersistence();
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js');
+    const reg = await navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' });
+    // Home-screen apps on iOS often resume instead of reloading, so check for updates when reopened.
+    reg?.update?.().catch(() => {});
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') reg?.update?.().catch(() => {});
+    });
     // When a new version takes over, reload once so the new files are used.
     let reloaded = false;
     const hadController = Boolean(navigator.serviceWorker.controller);
