@@ -29,7 +29,8 @@ export async function renderToday(root, sub, params) {
   const entries = await getEntries(date);
   const eaten = sumTotals(entries);
   const meals = await getMealCount(date);
-  const logged = await loggedDates();
+  // Enough history for the streak and this week's dots.
+  const logged = await loggedDates(shiftDate(now, -400));
   const streak = streakFrom(logged);
 
   // This week, Sunday to Saturday.

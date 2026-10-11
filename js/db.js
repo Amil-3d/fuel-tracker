@@ -131,6 +131,8 @@ export async function setMealCount(date, n) {
 }
 
 // Dates (YYYY-MM-DD) that have at least one food logged.
-export async function loggedDates() {
-  return new Set(await db.entries.orderBy('date').uniqueKeys());
+// (Safari can't open the unique-key cursor Dexie uses for uniqueKeys(), so read the rows instead.)
+export async function loggedDates(sinceDate) {
+  const rows = sinceDate ? await db.entries.where('date').aboveOrEqual(sinceDate).toArray() : await db.entries.toArray();
+  return new Set(rows.map((e) => e.date));
 }

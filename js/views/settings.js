@@ -51,7 +51,7 @@ export async function renderSettings(root, sub) {
       <p class="small muted" style="margin:0">All data stays on this phone. Export and import backups arrive in phase 6.</p>
       <button class="btn danger block" data-reset>Erase all data</button>
     </div>
-    <p class="small muted" style="text-align:center">Fuel · v11 · <button class="link-btn small" data-refresh>Force update</button></p>`;
+    <p class="small muted" style="text-align:center">Fuel · v12 · <button class="link-btn small" data-refresh>Force update</button></p>`;
 
   // Preferences save instantly.
   const prefs = root.querySelector('[data-prefs]');
