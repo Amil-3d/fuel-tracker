@@ -1,4 +1,4 @@
-import { saveProfile, setSetting, getSetting, db } from '../db.js';
+import { saveProfile, setSetting, getSetting, db, exportAll, importAll } from '../db.js';
 import { loadContext } from '../state.js';
 import { setTitle, seg, toast, notices, applyTheme } from '../ui.js';
 import { computePlan, defaultRate } from '../plan.js';
@@ -48,10 +48,14 @@ export async function renderSettings(root, sub) {
 
     <div class="section-title">Data</div>
     <div class="card stack">
-      <p class="small muted" style="margin:0">All data stays on this phone. Export and import backups arrive in phase 6.</p>
+      <p class="small muted" style="margin:0">All data stays on this phone. Save a backup now and then (to Files or iCloud Drive) so you can restore it on a new phone, or move between Safari and the home screen app.</p>
+      <div class="grid-2">
+        <button class="btn" data-export>Export backup</button>
+        <label class="btn" style="cursor:pointer">Import backup<input type="file" accept="application/json,.json" data-import hidden></label>
+      </div>
       <button class="btn danger block" data-reset>Erase all data</button>
     </div>
-    <p class="small muted" style="text-align:center">Fuel · v13 · <button class="link-btn small" data-refresh>Force update</button></p>`;
+    <p class="small muted" style="text-align:center">Fuel · v14 · <button class="link-btn small" data-refresh>Force update</button></p>`;
 
   // Preferences save instantly.
   const prefs = root.querySelector('[data-prefs]');
@@ -107,6 +111,38 @@ export async function renderSettings(root, sub) {
     const next = computePlan(r.profile, kg);
     toast(`Saved. Daily target: ${next.calories.toLocaleString('en-US')} kcal`);
     renderSettings(root, 'plan');
+  });
+
+  root.querySelector('[data-export]').addEventListener('click', async () => {
+    const backup = await exportAll();
+    const name = `fuel-backup-${backup.exportedAt.slice(0, 10)}.json`;
+    const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
+    const file = new File([blob], name, { type: 'application/json' });
+    // On iPhone the share sheet lets you Save to Files; elsewhere it downloads.
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: 'Fuel backup' }); return; } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  });
+
+  root.querySelector('[data-import]').addEventListener('change', async (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    let backup;
+    try { backup = JSON.parse(await f.text()); } catch (err) { toast("Couldn't read that file."); return; }
+    const count = backup?.data?.entries?.length ?? 0;
+    if (!confirm(`Replace everything on this phone with this backup (${count} food entries, from ${backup?.exportedAt?.slice(0, 10) || 'unknown date'})?`)) { e.target.value = ''; return; }
+    try { await importAll(backup); } catch (err) { toast(err.message); e.target.value = ''; return; }
+    const theme = (await getSetting('theme')) || 'system';
+    applyTheme(theme);
+    toast('Backup restored');
+    location.hash = '#/today';
+    location.reload();
   });
 
   root.querySelector('[data-reset]').addEventListener('click', async () => {

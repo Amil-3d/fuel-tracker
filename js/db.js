@@ -136,3 +136,44 @@ export async function loggedDates(sinceDate) {
   const rows = sinceDate ? await db.entries.where('date').aboveOrEqual(sinceDate).toArray() : await db.entries.toArray();
   return new Set(rows.map((e) => e.date));
 }
+
+// ---- Apple Health activity (imported through Shortcuts) ----
+
+export function getActivity(date) {
+  return db.activity.get(date);
+}
+
+export function activityBetween(from, to) {
+  return db.activity.where('date').between(from, to, true, true).toArray();
+}
+
+export async function saveActivity(date, values) {
+  const prev = (await db.activity.get(date)) || { date };
+  await db.activity.put({ ...prev, ...values, date, importedAt: Date.now() });
+}
+
+export function entriesBetween(from, to) {
+  return db.entries.where('date').between(from, to, true, true).toArray();
+}
+
+// ---- Backup ----
+
+const TABLES = ['settings', 'weights', 'foods', 'entries', 'activity'];
+
+export async function exportAll() {
+  const data = {};
+  for (const t of TABLES) data[t] = await db.table(t).toArray();
+  return { app: 'fuel', version: 1, exportedAt: new Date().toISOString(), data };
+}
+
+// Replace everything on this phone with a backup made by exportAll().
+export async function importAll(backup) {
+  if (!backup || backup.app !== 'fuel' || !backup.data) throw new Error("That file isn't a Fuel backup.");
+  if (!backup.data.settings?.some((s) => s.key === 'profile')) throw new Error('That backup has no profile in it.');
+  await db.transaction('rw', TABLES.map((t) => db.table(t)), async () => {
+    for (const t of TABLES) {
+      await db.table(t).clear();
+      if (backup.data[t]?.length) await db.table(t).bulkPut(backup.data[t]);
+    }
+  });
+}

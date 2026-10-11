@@ -93,3 +93,46 @@ export function iconRing(frac, color, icon, size = 64, stroke = 7) {
         stroke-dasharray="${(shown * c).toFixed(1)} ${c.toFixed(1)}" transform="rotate(-90 ${size / 2} ${size / 2})"/>` : ''}
     </svg><span class="icon-ring-icon">${icon}</span></div>`;
 }
+
+/**
+ * Daily bar chart with an optional target line.
+ * @param points [{ date: 'YYYY-MM-DD', value: number|null }] one per day, oldest first
+ * @param opts { target?, targetLabel?, color?, unit?, label?, height? }
+ */
+export function barChart(points, opts = {}) {
+  const W = 340, H = opts.height || 170;
+  const pad = { l: 40, r: 8, t: 16, b: 24 };
+  const vals = points.map((p) => p.value || 0);
+  const top = Math.max(...vals, opts.target || 0, 1) * 1.12;
+  const n = points.length;
+  const slot = (W - pad.l - pad.r) / n;
+  const bw = Math.max(4, slot - 4); // 2px surface gap each side
+  const sy = (v) => pad.t + (1 - v / top) * (H - pad.t - pad.b);
+  const base = H - pad.b;
+  // A round tick step (1, 2 or 5 × 10^k) that gives about four gridlines.
+  const raw = top / 4;
+  const mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 5, 10].map((m) => m * mag).find((v) => v >= raw);
+  const ticks = [];
+  for (let t = 0; t <= top; t += step) ticks.push(t);
+  const fmt = (v) => Math.round(v).toLocaleString('en-US');
+  const day = (iso) => parseDate(iso);
+  const bars = points.map((p, i) => {
+    const x = pad.l + i * slot + (slot - bw) / 2;
+    const tip = `${day(p.date).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}: ${p.value == null ? 'nothing logged' : fmt(p.value) + (opts.unit || '')}`;
+    if (!p.value) return `<g><title>${esc(tip)}</title><rect x="${x}" y="${base - 2}" width="${bw}" height="2" rx="1" class="bar-empty"/><rect x="${pad.l + i * slot}" y="${pad.t}" width="${slot}" height="${base - pad.t}" fill="transparent"/></g>`;
+    const y = sy(p.value);
+    const r = Math.min(4, bw / 2, base - y);
+    const over = opts.flagOver && opts.target && p.value > opts.target * 1.1;
+    return `<g><title>${esc(tip)}</title>
+      <path d="M${x},${base} V${y + r} Q${x},${y} ${x + r},${y} H${x + bw - r} Q${x + bw},${y} ${x + bw},${y + r} V${base} Z" style="fill:${over ? 'var(--danger)' : opts.color || 'var(--ink)'}"/>
+      <rect x="${pad.l + i * slot}" y="${pad.t}" width="${slot}" height="${base - pad.t}" fill="transparent"/></g>`;
+  }).join('');
+  const labels = points.map((p, i) => (i % 2 === (n - 1) % 2 ? `<text class="tick" x="${pad.l + i * slot + slot / 2}" y="${H - 7}" text-anchor="middle">${day(p.date).getDate()}</text>` : '')).join('');
+  return `<div class="chart"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(opts.label || 'Bar chart')}">
+    ${ticks.map((t) => `<line class="grid" x1="${pad.l}" x2="${W - pad.r}" y1="${sy(t)}" y2="${sy(t)}"/><text class="tick" x="${pad.l - 6}" y="${sy(t) + 4}" text-anchor="end">${t >= 1000 ? (t / 1000) + 'k' : t}</text>`).join('')}
+    ${bars}${labels}
+    ${opts.target ? `<line class="goal" x1="${pad.l}" x2="${W - pad.r}" y1="${sy(opts.target)}" y2="${sy(opts.target)}"/>
+      <text class="goal-label" x="${W - pad.r}" y="${sy(opts.target) - 5}" text-anchor="end">${esc(opts.targetLabel || 'Target')}</text>` : ''}
+  </svg></div>`;
+}

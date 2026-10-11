@@ -5,13 +5,15 @@ import { renderProgress } from './views/progress.js';
 import { renderSettings } from './views/settings.js';
 import { renderFood } from './views/food.js';
 import { renderFoodAdd } from './views/food-add.js';
+import { renderImport } from './views/import.js';
 import { applyTheme } from './ui.js';
 
 const routes = {
   today: renderToday,
   food: (root, sub, params) => (sub === 'add' ? renderFoodAdd(root, params) : renderFood(root, params)),
   progress: renderProgress,
-  settings: renderSettings
+  settings: renderSettings,
+  import: renderImport
 };
 
 const view = document.getElementById('view');
@@ -33,7 +35,7 @@ async function route() {
   const [name, sub] = path.split('/');
   const params = new URLSearchParams(query);
   const render = routes[name] || routes.today;
-  tabbar.querySelectorAll('a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (routes[name] ? name : 'today')));
+  tabbar.querySelectorAll('a').forEach((a) => a.classList.toggle('active', a.dataset.tab === (routes[name] && name !== 'import' ? name : 'today')));
   await render(view, sub, params);
   if (sub !== 'plan') window.scrollTo(0, 0);
 }

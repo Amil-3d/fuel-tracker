@@ -1,5 +1,5 @@
 import { loadContext } from '../state.js';
-import { getEntries, getMealCount, loggedDates } from '../db.js';
+import { getEntries, getMealCount, loggedDates, getActivity } from '../db.js';
 import { sumTotals, mealLabel, entryTotals } from '../nutrition.js';
 import { setTitle, esc, fmtDate, today, n0, isoDate, parseDate } from '../ui.js';
 import { fmtWeight } from '../units.js';
@@ -32,6 +32,7 @@ export async function renderToday(root, sub, params) {
   // Enough history for the streak and this week's dots.
   const logged = await loggedDates(shiftDate(now, -400));
   const streak = streakFrom(logged);
+  const activity = await getActivity(date);
 
   // This week, Sunday to Saturday.
   const start = shiftDate(now, -parseDate(now).getDay());
@@ -85,6 +86,13 @@ export async function renderToday(root, sub, params) {
         <a class="btn primary" href="#/food/add?date=${date}">Log food</a>
       </div>
     </div>
+
+    <a class="card row between plain-link" href="#/import">
+      <div><h3>Activity</h3><div class="muted small num">${activity
+        ? `${activity.steps != null ? `${n0(activity.steps)} steps` : ''}${activity.steps != null && activity.activeKcal != null ? ' · ' : ''}${activity.activeKcal != null ? `${n0(activity.activeKcal)} active kcal` : ''}`
+        : 'Steps and active calories from Apple Health'}</div></div>
+      <span class="btn small">${activity ? 'Update' : 'Import'}</span>
+    </a>
 
     <h2 class="list-title">${date === now ? 'Recently logged' : 'Logged that day'}</h2>
     ${recent.length ? recent.slice(0, 8).map((e) => {
