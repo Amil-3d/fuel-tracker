@@ -1,3 +1,4 @@
+import { CUP_OZ, MUG_OZ } from '../drinks.js';
 import { db, logFood, saveFood, deleteFood, recentFoods, favoriteFoods, customFoods, getEntries, getProfile, saveProfile, getMealCount } from '../db.js';
 import { setTitle, esc, n0, today, openSheet, stepper, wireSteppers, seg, num, toast } from '../ui.js';
 import { MEALS, NUTRIENTS, OPTIONAL, mealForNow, mealLabel, entryTotals, sumTotals, macroLine, portionText } from '../nutrition.js';
@@ -189,17 +190,18 @@ export async function renderFoodAdd(root, params) {
       const seen = new Set();
       for (const c of courts) for (const m of menu.menus[c][dining.date]) for (const st of m.stations) for (const id of st.items) {
         const it = menu.items[id];
-        const key = c + id;
+        const drink = id.startsWith('drink:');
+        const key = drink ? id : c + id;
         if (it && !seen.has(key) && (it.name.toLowerCase().includes(q) || st.name.toLowerCase().includes(q))) {
           seen.add(key);
-          hits.push(row(id, c, `${c} · ${m.name} · ${st.name}`));
+          hits.push(row(id, c, drink ? `Drinks at every ${info.places.replace(/s$/, '')}` : `${c} · ${m.name} · ${st.name}`));
         }
       }
       list = hits.length ? `<div class="card">${hits.join('')}</div>` : '<div class="card empty small">Nothing matches on this day.</div>';
     } else {
       const m = meals.find((x) => x.name === dining.meal);
       const picks = m ? diningPicks(menu, dining.court, m) : '';
-      list = picks + (m ? m.stations.map((st) => `<div class="card"><h3>${esc(st.name)}</h3>${st.items.map((id) => row(id)).join('')}</div>`).join('')
+      list = picks + (m ? m.stations.map((st) => `<div class="card"><h3>${esc(st.name)}</h3>${st.name === 'Drinks' ? `<p class="small muted" style="margin:2px 0 4px">One serving is a dining hall cup with ice (about ${CUP_OZ} fl oz of drink), or one mug (about ${MUG_OZ} fl oz) for coffee, tea and hot chocolate.</p>` : ''}${st.items.map((id) => row(id)).join('')}</div>`).join('')
         : `<div class="card empty"><h3>No ${esc(mealWord)} ${esc(dayWord)}</h3><p class="small">None of the ${esc(info.places)} list ${esc(mealWord)} ${esc(dayWord)}. Pick another meal at the top, or another day.</p></div>`);
     }
 

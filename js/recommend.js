@@ -4,6 +4,13 @@
 // Add-ons that aren't a meal on their own.
 const ADDON = /\b(sauce|dressing|syrup|ketchup|mustard|mayo|mayonnaise|creamer|sweetener|salt|pepper|gravy|salsa|relish|jelly|jam|honey|vinaigrette|condiment|aioli|hot sauce|sprinkles|bits|croutons|shredded \w+ cheese|shredded cheese|sliced \w+ cheese)\b/i;
 
+// Parts of a meal that only make sense with something else: buns, bread, tortillas, spreads,
+// sandwich and salad toppings. They're never suggested on their own, only next to a main
+// from the same station (a bun with the burger patty from the burger bar).
+const SIDE = /\b(buns?|(?<!(egg|spring|cinnamon|sushi|california|dragon|spicy tuna|lobster|sweet) )rolls?|bread|breads|tortillas?|pitas?|naan|flatbreads?|wrap shells?|taco shells?|tostada shells?|english muffins?|croutons|crackers|butter|margarine|cream cheese|lettuce|romaine|spring mix|mixed greens|spinach|kale|arugula|tomato(es)?|tomato slices?|bread slices?|onions?|red onion|pickles?|jalapen(o|ñ)os?|olives|cucumbers?|peppers|banana peppers|bean sprouts|alfalfa sprouts|shredded carrots|sour cream|guacamole|hummus|cheese slices?|(american|cheddar|swiss|provolone|pepper jack|mozzarella|parmesan|feta|cotija|colby|monterey jack|shredded|sliced|cheddar jack|blue|bleu|goat|vegan|queso fresco)( \w+)? cheese|parmesan|feta|cotija|bacon bits|sunflower seeds|raisins|granola|whipped cream|cool whip)$/i;
+const NOT_SIDE = /\b(with|and|pizza|sushi|salmon|tuna|crab|tofu|egg|sausage|chicken|beef|pork|turkey|eggplant|cake|cinnamon|pepperoni|hokie|takuwan|curry|philly|pickles|cheesy)\b|[,&]/i;
+export const isSide = (name) => SIDE.test(name) && !NOT_SIDE.test(name);
+
 // Serving amounts a pick can suggest.
 const AMOUNTS = [0.5, 1, 1.5, 2];
 
@@ -114,11 +121,14 @@ export function tags(per) {
  * Rank candidates: [{ key, name, per, ...anything }]. Returns the top `limit`,
  * best first, each with `score`, `tags` and `servings` (the suggested amount;
  * `per` is the nutrition for one serving). Duplicate names keep the best one.
+ * Sides (buns, toppings) are left out unless their station is in `sidesFor`.
  */
-export function rank(candidates, budget, limit = 6) {
+export function rank(candidates, budget, limit = 6, sidesFor = null) {
   const best = new Map();
   for (const c of candidates) {
-    if (!c.per || ADDON.test(c.name) || (c.station && ADDON_STATION.test(c.station))) continue;
+    if (!c.per || c.per.drink || ADDON.test(c.name) || (c.station && ADDON_STATION.test(c.station))) continue;
+    // Sides only go with a main from their own station (see buildPlate).
+    if (isSide(c.name) && !(sidesFor && c.station && sidesFor.has(c.station))) continue;
     for (const servings of amountsFor(c.per.serving ?? c.serving)) {
       const amount = scale(c.per, servings);
       let score = scoreFood(amount, budget, c.name);
@@ -142,7 +152,8 @@ export function buildPlate(candidates, budget) {
     // Skip near-duplicates like "Spaghetti" and "Spaghetti, Small Plate".
     const base = (n) => n.toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\b(small|large|plate|side|bowl|cup)\b/g, '').trim().split(/\s+/).slice(0, 2).join(' ');
     const pool = candidates.filter((c) => c.per && ![...used].some((u) => base(u) === base(c.name) || u.includes(c.name.toLowerCase()) || c.name.toLowerCase().includes(u)));
-    const top = rank(pool, { ...left, dayKcal: Math.min(left.dayKcal, left.kcal) }, 1)[0];
+    const mains = new Set(plate.filter((p) => !isSide(p.name)).map((p) => p.station).filter(Boolean));
+    const top = rank(pool, { ...left, dayKcal: Math.min(left.dayKcal, left.kcal) }, 1, mains)[0];
     if (!top || top.score < 0.25) break;
     plate.push(top);
     used.add(top.name.toLowerCase());

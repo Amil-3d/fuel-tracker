@@ -109,6 +109,8 @@ export function portionText(serving, servings = 1) {
   let unit = amt.rest.replace(/^#\s*/, '');
   const num = fracText(n);
 
+  const vessel = unit.match(/^(glass|mug) \((\d+(?:\.\d+)?) fl oz\)$/);
+  if (vessel) return `${num} ${vessel[1] === 'glass' ? (n > 1 ? 'glasses' : 'glass') : (n > 1 ? 'mugs' : 'mug')} (${fracText(n * Number(vessel[2]))} fl oz)`;
   if (/^oz(l| ladle)$|^fl oz$/.test(unit) || /^ozl/.test(unit)) {
     return `${num} fl oz (about ${fracText(Math.round((n / 8) * 4) / 4) || '¼'} cup)`;
   }

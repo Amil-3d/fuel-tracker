@@ -1,5 +1,6 @@
 // Dining menu data, refreshed daily by a GitHub Action (scripts/fetch_menus*.py).
 import { db, saveFood } from './db.js';
+import { addDrinks } from './drinks.js';
 
 export const SCHOOLS = [
   { id: 'purdue', name: 'Purdue', dining: 'Purdue Dining', places: 'dining courts', file: 'data/menu.json' },
@@ -16,7 +17,7 @@ export async function loadMenu(school) {
   if (cache[school]) return cache[school];
   const res = await fetch(info.file);
   if (!res.ok) throw new Error(`Menu data unavailable (${res.status}).`);
-  cache[school] = await res.json();
+  cache[school] = addDrinks(await res.json());
   return cache[school];
 }
 
