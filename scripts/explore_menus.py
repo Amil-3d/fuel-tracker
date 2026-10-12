@@ -1,7 +1,6 @@
-# One-off exploration of the undocumented Purdue HFS dining API.
-# Saves raw responses to explore/ and prints a short preview of each.
+# Exploration: how does the Purdue API expose nutrition for bars like "Salad Bar"?
+# Prints raw records so we can see child items, plus the GraphQL schema for item types.
 import json
-import os
 import datetime
 import zoneinfo
 import requests
@@ -9,54 +8,50 @@ import requests
 BASE = "https://api.hfs.purdue.edu/menus"
 HEADERS = {"Accept": "application/json", "User-Agent": "fuel-tracker personal menu fetcher"}
 today = datetime.datetime.now(zoneinfo.ZoneInfo("America/New_York")).date().isoformat()
-os.makedirs("explore", exist_ok=True)
 
+r = requests.get(BASE + "/v2/locations/Wiley/" + today, headers=HEADERS, timeout=30)
+data = r.json()
+shown = 0
+bar_ids = []
+for meal in data.get("Meals", []):
+    for station in meal.get("Stations", []):
+        for item in station.get("Items", []):
+            if not item.get("NutritionReady") and shown < 4:
+                print("=== RAW LOCATION ITEM", meal["Name"], "/", station["Name"])
+                print(json.dumps(item, indent=1)[:2500])
+                shown += 1
+                bar_ids.append(item["ID"])
+        if shown == 0 and station is meal["Stations"][0]:
+            print("=== STATION KEYS", list(station.keys()))
+print("=== MEAL KEYS", list(data["Meals"][0].keys()) if data.get("Meals") else None)
 
-def show(label, response, filename):
-    print("=" * 80)
-    print(label, "->", response.status_code, response.headers.get("content-type"), len(response.content), "bytes")
-    f = open("explore/" + filename, "wb")
-    f.write(response.content)
-    f.close()
-    text = response.text
-    if "json" in (response.headers.get("content-type") or ""):
-        text = json.dumps(response.json(), indent=2)
-    print(text[:3000])
+for item_id in bar_ids[:3]:
+    r = requests.get(BASE + "/v2/items/" + item_id, headers=HEADERS, timeout=30)
+    print("=== /v2/items/" + item_id, r.status_code)
+    print(r.text[:3000])
 
+gql = "https://api.hfs.purdue.edu/menus/v3/GraphQL"
+q = "{ __schema { types { name kind fields { name type { name kind ofType { name kind ofType { name } } } } } } }"
+r = requests.post(gql, json={"query": q}, headers=HEADERS, timeout=30)
+print("=== GRAPHQL schema", r.status_code)
+if r.status_code == 200:
+    for t in r.json()["data"]["__schema"]["types"]:
+        if t["kind"] == "OBJECT" and not t["name"].startswith("__") and t["fields"]:
+            print(t["name"], ":", ", ".join(f["name"] for f in t["fields"]))
+else:
+    print(r.text[:1500])
 
-r = requests.get(BASE + "/v2/locations", headers=HEADERS, timeout=30)
-show("GET /v2/locations", r, "locations.json")
+if bar_ids:
+    q = '{ itemByItemId(itemId: "' + bar_ids[0] + '") { name } }'
+    r = requests.post(gql, json={"query": q}, headers=HEADERS, timeout=30)
+    print("=== GRAPHQL itemByItemId", r.status_code, r.text[:1500])
 
-names = []
-if r.status_code == 200 and "json" in (r.headers.get("content-type") or ""):
-    data = r.json()
-    locs = data.get("Location", data) if isinstance(data, dict) else data
-    for loc in locs:
-        if isinstance(loc, dict):
-            names.append(loc.get("Name"))
-print("Location names:", names)
-
-first_item = None
-for name in ["Wiley", "Earhart"]:
-    r = requests.get(BASE + "/v2/locations/" + name + "/" + today, headers=HEADERS, timeout=30)
-    show("GET /v2/locations/" + name + "/" + today, r, "menu_" + name + ".json")
-    if first_item is None and r.status_code == 200 and "json" in (r.headers.get("content-type") or ""):
-        for meal in r.json().get("Meals", []):
-            for station in meal.get("Stations", []):
-                for item in station.get("Items", []):
-                    if first_item is None:
-                        first_item = item.get("ID")
-
-print("First item ID:", first_item)
-if first_item:
-    r = requests.get(BASE + "/v2/items/" + str(first_item), headers=HEADERS, timeout=30)
-    show("GET /v2/items/" + str(first_item), r, "item.json")
-
-# Lowercase location name, to confirm case sensitivity.
-r = requests.get(BASE + "/v2/locations/wiley/" + today, headers=HEADERS, timeout=30)
-show("GET /v2/locations/wiley (lowercase)", r, "menu_wiley_lower.json")
-
-# A newer GraphQL endpoint may return nutrition in one request; check what it exposes.
-query = "{ __schema { queryType { fields { name args { name } } } } }"
-r = requests.post(BASE + "/v3/GraphQL", json={"query": query}, headers=HEADERS, timeout=30)
-show("POST /v3/GraphQL (schema fields)", r, "graphql_schema.json")
+# Beverages: any station or item name that looks like a drink, across courts.
+for court in ["Earhart", "Ford", "Hillenbrand", "Windsor"]:
+    r = requests.get(BASE + "/v2/locations/" + court + "/" + today, headers=HEADERS, timeout=30)
+    for meal in r.json().get("Meals", []):
+        for station in meal.get("Stations", []):
+            for item in station.get("Items", []):
+                n = item["Name"].lower()
+                if any(w in n for w in ["milk", "juice", "coffee", "cocoa", "chocolate milk", "soda", "tea", "lemonade", "drink", "beverage", "water"]):
+                    print("DRINK?", court, meal["Name"], station["Name"], item["Name"], item.get("NutritionReady"))
